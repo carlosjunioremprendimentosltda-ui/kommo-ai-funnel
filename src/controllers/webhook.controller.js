@@ -1,5 +1,6 @@
 const { enqueueMessage } = require('../services/buffer.service');
 const { log } = require('../services/logger.service');
+const { getLeadLatestMessage } = require('../services/kommo.service');
 
 /**
  * Controller responsável por receber webhooks do Salesbot ou da Chats API do Kommo
@@ -14,15 +15,49 @@ async function handleKommoWebhook(req, res) {
 
     log('info', `📬 Webhook recebido do Kommo!`, { query, payload: Object.keys(payload).length > 0 ? payload : '(Vazio)' });
 
-    // 1. Extração flexível do lead_id (atende Salesbot, Chats API ou Webhook geral)
-    let leadId = 
-      query.lead_id ||
-      payload.lead_id || 
-      payload.lead?.id ||
-      payload.data?.lead_id ||
-      payload.message?.lead_id ||
-      payload.leads?.status?.[0]?.id ||
-      payload.leads?.add?.[0]?.id;
+    // Se vier subdomínio da conta no payload e o nosso estiver padrão, atualiza automaticamente
+    const accountSubdomain = payload.account?.subdomain || query.subdomain;
+    if (accountSubdomain && (!process.env.KOMMO_SUBDOMAIN || process.env.KOMMO_SUBDOMAIN === 'suaempresa')) {
+      process.env.KOMMO_SUBDOMAIN = accountSubdomain;
+      log('info', `📌 Subdomínio do Kommo detectado automaticamente: "${accountSubdomain}"`);
+    }
+
+    // Validador de ID numérico real (descarta tags não substituídas como {{lead.id}})
+    function isValidId(val) {
+      if (!val) return false;
+      const str = String(val).trim();
+      return str !== '' && !str.includes('{') && !str.includes('}') && /^\d+$/.test(str);
+    }
+
+    // 1. Extração flexível e robusta do lead_id
+    let leadId = null;
+
+    if (isValidId(query.lead_id)) {
+      leadId = query.lead_id;
+    } else if (isValidId(payload.lead_id)) {
+      leadId = payload.lead_id;
+    } else if (isValidId(payload.leads?.add?.[0]?.id)) {
+      leadId = payload.leads.add[0].id;
+    } else if (isValidId(payload.leads?.status?.[0]?.id)) {
+      leadId = payload.leads.status[0].id;
+    } else if (isValidId(payload.leads?.update?.[0]?.id)) {
+      leadId = payload.leads.update[0].id;
+    } else if (isValidId(payload.lead?.id)) {
+      leadId = payload.lead.id;
+    } else if (isValidId(payload.data?.lead_id)) {
+      leadId = payload.data.lead_id;
+    } else if (isValidId(payload.message?.lead_id)) {
+      leadId = payload.message.lead_id;
+    } else if (isValidId(payload['leads[add][0][id]'])) {
+      leadId = payload['leads[add][0][id]'];
+    } else if (isValidId(payload['leads[status][0][id]'])) {
+      leadId = payload['leads[status][0][id]'];
+    }
+
+    if (!leadId) {
+      log('warn', `⚠️ Webhook recebido sem lead_id numérico válido.`, { query, payload });
+      return;
+    }
 
     // 2. Extração do tipo e conteúdo da mensagem (texto ou link de áudio)
     let type = 'text';
@@ -35,26 +70,29 @@ async function handleKommoWebhook(req, res) {
       type = payload.type;
       content = payload.media || payload.url || '';
     } else {
-      content = payload.text || payload.last_message || payload.client_message || payload.data?.message || '';
+      content = query.message || payload.text || payload.last_message || payload.client_message || payload.data?.message || '';
       if (typeof content === 'string' && (content.startsWith('http') && (content.includes('.ogg') || content.includes('.mp3') || content.includes('.opus')))) {
         type = 'voice';
       }
     }
 
-    if (!leadId) {
-      log('warn', `⚠️ Webhook recebido sem lead_id identificado. Verifique se o Salesbot está enviando ?lead_id={{lead.id}} na URL.`, payload);
-      return;
+    // 3. Se não veio texto direto no webhook, busca na linha do tempo do Kommo
+    if (!content || content.includes('{{') || content.trim() === '') {
+      log('info', `🔍 Webhook sem texto direto. Buscando última mensagem do Lead ${leadId} no Kommo...`);
+      const fetched = await getLeadLatestMessage(leadId);
+      if (fetched) {
+        type = fetched.type;
+        content = fetched.content;
+        log('success', `📥 Mensagem obtida do Kommo: [${type.toUpperCase()}] "${content.slice(0, 100)}..."`);
+      } else {
+        log('warn', `⚠️ Nenhuma mensagem encontrada no histórico recente do Lead ${leadId}.`);
+        content = '(Mensagem não localizada)';
+      }
+    } else {
+      log('success', `📥 Lead ${leadId} identificado! Conteúdo detectado: [${type.toUpperCase()}] "${content.slice(0, 100)}..."`);
     }
 
-    if (!content) {
-      // Se não veio texto direto, vamos tentar processar mesmo assim ou alertar
-      log('warn', `⚠️ Lead ${leadId} recebido, mas nenhum texto ou link de áudio veio no corpo do webhook.`);
-      content = '(Mensagem recebida sem corpo no webhook)';
-    }
-
-    log('success', `📥 Lead ${leadId} identificado! Conteúdo detectado: [${type.toUpperCase()}] "${content.slice(0, 100)}..."`);
-
-    // 3. Envia para o serviço de buffer / debounce
+    // 4. Envia para o serviço de buffer / debounce
     enqueueMessage({
       leadId,
       type,

@@ -102,9 +102,50 @@ async function getPipelines() {
   return response.data._embedded.pipelines;
 }
 
+/**
+ * Busca as últimas notas/interações do lead para extrair a última mensagem ou áudio do WhatsApp
+ * @param {number|string} leadId 
+ */
+async function getLeadLatestMessage(leadId) {
+  try {
+    const client = getKommoClient();
+    const response = await client.get(`/leads/${leadId}/notes?order[created_at]=desc&limit=10`);
+    const notes = response.data?._embedded?.notes || [];
+
+    for (const note of notes) {
+      // Ignora notas internas geradas pela nossa própria IA
+      if (note.params?.text && note.params.text.includes('TRIAGEM AUTOMÁTICA')) {
+        continue;
+      }
+
+      // Se for link de arquivo de áudio
+      const link = note.params?.link || note.params?.file?.link || note.params?.attachment?.link;
+      if (link && (link.includes('.ogg') || link.includes('.mp3') || link.includes('.opus') || link.includes('media'))) {
+        return { type: 'voice', content: link };
+      }
+
+      // Se for texto
+      if (note.params?.text && note.params.text.trim()) {
+        const text = note.params.text.trim();
+        if (text.startsWith('http') && (text.includes('.ogg') || text.includes('.mp3') || text.includes('.opus'))) {
+          return { type: 'voice', content: text };
+        }
+        return { type: 'text', content: text };
+      }
+    }
+
+    return null;
+  } catch (error) {
+    const msg = error.response ? JSON.stringify(error.response.data) : error.message;
+    console.warn(`[KommoService] Não foi possível obter histórico de notas do lead ${leadId}:`, msg);
+    return null;
+  }
+}
+
 module.exports = {
   updateLeadStage,
   addLeadNote,
   getLeadDetails,
   getPipelines,
+  getLeadLatestMessage,
 };
