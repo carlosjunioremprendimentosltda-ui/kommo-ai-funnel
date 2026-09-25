@@ -84,6 +84,7 @@ function getConfig(req, res) {
         STAGE_NEGATIVO_ID: config.STAGE_NEGATIVO_ID || process.env.STAGE_NEGATIVO_ID || '',
         STAGE_HUMANO_ID: config.STAGE_HUMANO_ID || process.env.STAGE_HUMANO_ID || '',
         BUFFER_TIMEOUT_MS: config.BUFFER_TIMEOUT_MS || process.env.BUFFER_TIMEOUT_MS || '25000',
+        GEMINI_API_KEY: config.GEMINI_API_KEY || process.env.GEMINI_API_KEY || '',
         OPENAI_API_KEY: config.OPENAI_API_KEY || process.env.OPENAI_API_KEY || '',
       },
     });
@@ -100,6 +101,7 @@ function saveConfig(req, res) {
     const {
       KOMMO_SUBDOMAIN,
       KOMMO_ACCESS_TOKEN,
+      GEMINI_API_KEY,
       OPENAI_API_KEY,
       STAGE_POSITIVO_ID,
       STAGE_NEGATIVO_ID,
@@ -110,6 +112,7 @@ function saveConfig(req, res) {
     const payload = {};
     if (KOMMO_SUBDOMAIN !== undefined) payload.KOMMO_SUBDOMAIN = KOMMO_SUBDOMAIN.trim();
     if (KOMMO_ACCESS_TOKEN !== undefined) payload.KOMMO_ACCESS_TOKEN = KOMMO_ACCESS_TOKEN.trim();
+    if (GEMINI_API_KEY !== undefined) payload.GEMINI_API_KEY = GEMINI_API_KEY.trim();
     if (OPENAI_API_KEY !== undefined) payload.OPENAI_API_KEY = OPENAI_API_KEY.trim();
     if (STAGE_POSITIVO_ID !== undefined) payload.STAGE_POSITIVO_ID = STAGE_POSITIVO_ID;
     if (STAGE_NEGATIVO_ID !== undefined) payload.STAGE_NEGATIVO_ID = STAGE_NEGATIVO_ID;

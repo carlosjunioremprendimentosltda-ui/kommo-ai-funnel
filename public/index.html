@@ -80,11 +80,29 @@
             <span class="input-hint">Gerado em: <strong>Configurações > Integrações > Criar Integração</strong>.</span>
           </div>
 
-          <!-- OpenAI Key -->
+          <!-- Google Gemini Key (Recomendado) -->
           <div class="form-group full-width">
-            <label for="openai-key">Chave de API da OpenAI (Whisper + GPT-4o-mini)</label>
+            <label for="gemini-key">
+              Chave de API do Google Gemini 
+              <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-size: 0.72rem; padding: 2px 8px; border-radius: 10px; margin-left: 6px; font-weight: 600;">⭐ Recomendado (Mais Rápido & Econômico)</span>
+            </label>
             <div class="input-with-button">
-              <input type="password" id="openai-key" name="OPENAI_API_KEY" placeholder="sk-proj-..." required>
+              <input type="password" id="gemini-key" name="GEMINI_API_KEY" placeholder="AIzaSy...">
+              <button type="button" class="btn-icon" id="toggle-gemini-btn" title="Mostrar/Ocultar Chave">
+                <svg class="eye-icon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </div>
+            <span class="input-hint">Gere gratuitamente no <strong>Google AI Studio</strong> (airstudio.google.com). O Gemini 2.5 Flash transcreve e classifica áudios em 1 única requisição!</span>
+          </div>
+
+          <!-- OpenAI Key (Alternativa) -->
+          <div class="form-group full-width">
+            <label for="openai-key">Chave de API da OpenAI (Opcional / Alternativa)</label>
+            <div class="input-with-button">
+              <input type="password" id="openai-key" name="OPENAI_API_KEY" placeholder="sk-proj-...">
               <button type="button" class="btn-icon" id="toggle-openai-btn" title="Mostrar/Ocultar Chave">
                 <svg class="eye-icon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
@@ -92,7 +110,7 @@
                 </svg>
               </button>
             </div>
-            <span class="input-hint">Usada para transcrever áudios do WhatsApp e classificar respostas com precisão.</span>
+            <span class="input-hint">Usada como alternativa caso a chave do Gemini não seja informada.</span>
           </div>
         </div>
 

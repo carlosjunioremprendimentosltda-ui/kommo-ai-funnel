@@ -1,16 +1,37 @@
+const { GoogleGenAI } = require('@google/genai');
 const { OpenAI } = require('openai');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+let geminiClient = null;
 let openaiClient = null;
+
+/**
+ * Retorna o provedor ativo (prioriza Gemini se configurado)
+ */
+function getActiveProvider() {
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== '') {
+    return 'gemini';
+  }
+  if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim() !== '') {
+    return 'openai';
+  }
+  throw new Error('Nenhuma chave de IA configurada! Defina GEMINI_API_KEY ou OPENAI_API_KEY no .env');
+}
+
+function getGeminiClient() {
+  if (!geminiClient) {
+    geminiClient = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+    });
+  }
+  return geminiClient;
+}
 
 function getOpenAIClient() {
   if (!openaiClient) {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY não configurada no arquivo .env');
-    }
     openaiClient = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
@@ -19,12 +40,53 @@ function getOpenAIClient() {
 }
 
 /**
- * Faz o download do arquivo de áudio (OGG/MP3/WAV) a partir de uma URL
- * e o transcreve usando o Whisper da OpenAI.
- * @param {string} audioUrl - URL direta do arquivo de áudio
+ * Faz o download do arquivo de áudio e o transcreve usando Gemini ou Whisper
+ * @param {string} audioUrl - URL direta do arquivo de áudio (.ogg / WhatsApp)
  * @returns {Promise<string>} Texto transcrito
  */
 async function transcribeAudioFromUrl(audioUrl) {
+  const provider = getActiveProvider();
+  console.log(`[AIService] Baixando áudio para transcrição via [${provider.toUpperCase()}]...`);
+
+  // Download do áudio em memória (ArrayBuffer)
+  const response = await axios({
+    url: audioUrl,
+    method: 'GET',
+    responseType: 'arraybuffer',
+    timeout: 15000,
+  });
+
+  const audioBuffer = Buffer.from(response.data);
+
+  // 1. VIA GOOGLE GEMINI (Rápido, em memória e sem arquivos temporários)
+  if (provider === 'gemini') {
+    try {
+      const ai = getGeminiClient();
+      const base64Audio = audioBuffer.toString('base64');
+
+      const result = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          {
+            inlineData: {
+              mimeType: 'audio/ogg',
+              data: base64Audio,
+            },
+          },
+          'Transcreva este áudio de WhatsApp em português brasileiro exatamente como foi falado. Retorne estritamente apenas a transcrição do áudio, sem introduções ou explicações.',
+        ],
+      });
+
+      const text = result.text ? result.text.trim() : '';
+      console.log(`[AIService - Gemini] Transcrição concluída: "${text}"`);
+      return text;
+    } catch (err) {
+      console.error('[AIService - Gemini] Erro ao transcrever:', err.message);
+      throw new Error(`Falha na transcrição com Gemini: ${err.message}`);
+    }
+  }
+
+  // 2. VIA OPENAI WHISPER
   const tempDir = path.join(os.tmpdir(), 'kommo_audios');
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
@@ -33,26 +95,7 @@ async function transcribeAudioFromUrl(audioUrl) {
   const tempFilePath = path.join(tempDir, `audio_${Date.now()}_${Math.random().toString(36).substring(7)}.ogg`);
 
   try {
-    console.log(`[AIService] Baixando áudio: ${audioUrl}`);
-
-    // Download do arquivo de áudio em stream
-    const response = await axios({
-      url: audioUrl,
-      method: 'GET',
-      responseType: 'stream',
-      timeout: 15000,
-    });
-
-    const writer = fs.createWriteStream(tempFilePath);
-    response.data.pipe(writer);
-
-    await new Promise((resolve, reject) => {
-      writer.on('finish', resolve);
-      writer.on('error', reject);
-    });
-
-    console.log(`[AIService] Áudio salvo temporariamente. Enviando para o Whisper...`);
-
+    fs.writeFileSync(tempFilePath, audioBuffer);
     const openai = getOpenAIClient();
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(tempFilePath),
@@ -61,19 +104,14 @@ async function transcribeAudioFromUrl(audioUrl) {
       temperature: 0.2,
     });
 
-    console.log(`[AIService] Transcrição concluída: "${transcription.text}"`);
+    console.log(`[AIService - Whisper] Transcrição concluída: "${transcription.text}"`);
     return transcription.text;
-  } catch (error) {
-    console.error('[AIService] Erro ao transcrever áudio:', error.message);
-    throw new Error(`Falha na transcrição do áudio: ${error.message}`);
+  } catch (err) {
+    console.error('[AIService - Whisper] Erro ao transcrever:', err.message);
+    throw new Error(`Falha na transcrição com Whisper: ${err.message}`);
   } finally {
-    // Garante que o arquivo temporário será deletado
     if (fs.existsSync(tempFilePath)) {
-      try {
-        fs.unlinkSync(tempFilePath);
-      } catch (cleanupErr) {
-        console.warn('[AIService] Falha ao remover arquivo temporário:', cleanupErr.message);
-      }
+      try { fs.unlinkSync(tempFilePath); } catch (e) {}
     }
   }
 }
@@ -84,7 +122,8 @@ async function transcribeAudioFromUrl(audioUrl) {
  * @returns {Promise<{classificacao: string, motivo: string, transcricao_resumida: string}>}
  */
 async function classifyCustomerIntent(messageContent) {
-  const openai = getOpenAIClient();
+  const provider = getActiveProvider();
+  console.log(`[AIService] Classificando intenção via [${provider.toUpperCase()}]...`);
 
   const prompt = `
 Você é o assistente inteligente de triagem de um funil de vendas via WhatsApp.
@@ -123,6 +162,24 @@ RESPONDA EXCLUSIVAMENTE NO FORMATO JSON ABAIXO:
 `;
 
   try {
+    // 1. VIA GOOGLE GEMINI
+    if (provider === 'gemini') {
+      const ai = getGeminiClient();
+      const result = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      });
+
+      const parsed = JSON.parse(result.text);
+      return parsed;
+    }
+
+    // 2. VIA OPENAI
+    const openai = getOpenAIClient();
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       response_format: { type: 'json_object' },
@@ -132,8 +189,9 @@ RESPONDA EXCLUSIVAMENTE NO FORMATO JSON ABAIXO:
 
     const parsedResult = JSON.parse(completion.choices[0].message.content);
     return parsedResult;
+
   } catch (error) {
-    console.error('[AIService] Erro ao classificar intenção:', error.message);
+    console.error(`[AIService - ${provider}] Erro ao classificar:`, error.message);
     return {
       classificacao: 'INCONCLUSIVO',
       motivo: `Erro na análise de IA: ${error.message}`,
@@ -145,4 +203,5 @@ RESPONDA EXCLUSIVAMENTE NO FORMATO JSON ABAIXO:
 module.exports = {
   transcribeAudioFromUrl,
   classifyCustomerIntent,
+  getActiveProvider,
 };

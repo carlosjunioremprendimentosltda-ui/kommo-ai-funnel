@@ -44,6 +44,7 @@ function initWebhookUrl() {
 function initFormControls() {
   // Toggle Password Visibility
   setupPasswordToggle('toggle-token-btn', 'token');
+  setupPasswordToggle('toggle-gemini-btn', 'gemini-key');
   setupPasswordToggle('toggle-openai-btn', 'openai-key');
 
   // Debounce Slider
@@ -124,6 +125,7 @@ async function loadCurrentConfig() {
 
     document.getElementById('subdomain').value = currentConfig.KOMMO_SUBDOMAIN || '';
     document.getElementById('token').value = currentConfig.KOMMO_ACCESS_TOKEN || '';
+    document.getElementById('gemini-key').value = currentConfig.GEMINI_API_KEY || '';
     document.getElementById('openai-key').value = currentConfig.OPENAI_API_KEY || '';
 
     // Slider de Debounce
@@ -275,6 +277,7 @@ async function handleSaveConfig() {
   const payload = {
     KOMMO_SUBDOMAIN: document.getElementById('subdomain').value.trim(),
     KOMMO_ACCESS_TOKEN: document.getElementById('token').value.trim(),
+    GEMINI_API_KEY: document.getElementById('gemini-key').value.trim(),
     OPENAI_API_KEY: document.getElementById('openai-key').value.trim(),
     STAGE_POSITIVO_ID: document.getElementById('stage-positivo').value,
     STAGE_NEGATIVO_ID: document.getElementById('stage-negativo').value,
