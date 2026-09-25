@@ -7,6 +7,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initWebhookUrl();
   initFormControls();
   loadCurrentConfig();
+  initLogsPoller();
+  initSimulationControls();
 });
 
 /**
@@ -325,4 +327,171 @@ function showToast(message, type = 'success') {
   setTimeout(() => {
     toast.className = 'toast';
   }, 4000);
+}
+
+/**
+ * ========================================================
+ * TERMINAL DE LOGS EM TEMPO REAL & SIMULADOR DE TESTES
+ * ========================================================
+ */
+let latestLogsCache = [];
+
+function initLogsPoller() {
+  fetchLogs();
+  setInterval(fetchLogs, 2000);
+}
+
+async function fetchLogs() {
+  try {
+    const res = await fetch('/api/logs');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.success && Array.isArray(data.logs)) {
+      latestLogsCache = data.logs;
+      renderTerminalLogs(data.logs);
+    }
+  } catch (err) {
+    // Silencioso em caso de micro-queda de conexão local
+  }
+}
+
+function renderTerminalLogs(logs) {
+  const terminal = document.getElementById('terminal-body');
+  if (!terminal) return;
+
+  if (logs.length === 0) {
+    terminal.innerHTML = `
+      <div class="log-entry log-info">
+        <span class="log-time">[${new Date().toLocaleTimeString('pt-BR')}]</span>
+        <span class="log-tag tag-info">[INFO]</span>
+        <span class="log-msg">Nenhum evento registrado ainda. Envie uma mensagem no Kommo ou use o simulador acima!</span>
+      </div>`;
+    return;
+  }
+
+  let html = '';
+  // Mostra na ordem cronológica (mais antigo primeiro para leitura de cima para baixo ou como terminal)
+  const displayLogs = [...logs].reverse();
+
+  displayLogs.forEach((item) => {
+    const tagClass = `tag-${item.level || 'info'}`;
+    const levelLabel = (item.level || 'INFO').toUpperCase();
+
+    let detailsHtml = '';
+    if (item.details) {
+      detailsHtml = `<div class="log-details-block">${escapeHtml(item.details)}</div>`;
+    }
+
+    html += `
+      <div class="log-entry">
+        <span class="log-time">[${item.time || '00:00:00'}]</span>
+        <span class="log-tag ${tagClass}">[${levelLabel}]</span>
+        <div class="log-msg">
+          ${escapeHtml(item.message)}
+          ${detailsHtml}
+        </div>
+      </div>
+    `;
+  });
+
+  // Só rola para baixo se o usuário já estiver perto do final
+  const isScrolledToBottom = terminal.scrollHeight - terminal.clientHeight <= terminal.scrollTop + 50;
+  terminal.innerHTML = html;
+  if (isScrolledToBottom) {
+    terminal.scrollTop = terminal.scrollHeight;
+  }
+}
+
+function initSimulationControls() {
+  // Botão Copiar Logs
+  const btnCopyLogs = document.getElementById('btn-copy-logs');
+  if (btnCopyLogs) {
+    btnCopyLogs.addEventListener('click', () => {
+      if (latestLogsCache.length === 0) {
+        showToast('Nenhum log para copiar.', 'error');
+        return;
+      }
+
+      const formatted = latestLogsCache
+        .slice()
+        .reverse()
+        .map((l) => `[${l.time}] [${(l.level || 'INFO').toUpperCase()}] ${l.message}${l.details ? '\n' + l.details : ''}`)
+        .join('\n');
+
+      navigator.clipboard.writeText(formatted).then(() => {
+        showToast('Logs copiados para a área de transferência!', 'success');
+      });
+    });
+  }
+
+  // Botão Limpar Logs
+  const btnClearLogs = document.getElementById('btn-clear-logs');
+  if (btnClearLogs) {
+    btnClearLogs.addEventListener('click', async () => {
+      try {
+        await fetch('/api/logs/clear', { method: 'POST' });
+        latestLogsCache = [];
+        fetchLogs();
+        showToast('Console de logs limpo com sucesso!', 'success');
+      } catch (err) {
+        showToast('Erro ao limpar logs.', 'error');
+      }
+    });
+  }
+
+  // Botão Disparar Simulação
+  const btnSimulate = document.getElementById('btn-run-simulation');
+  if (btnSimulate) {
+    btnSimulate.addEventListener('click', async () => {
+      const leadId = document.getElementById('sim-lead-id').value.trim();
+      const message = document.getElementById('sim-message').value.trim();
+
+      if (!leadId) {
+        showToast('Por favor, informe o ID de um Lead real do seu Kommo para testar!', 'error');
+        document.getElementById('sim-lead-id').focus();
+        return;
+      }
+
+      if (!message) {
+        showToast('Digite uma mensagem de teste.', 'error');
+        return;
+      }
+
+      btnSimulate.classList.add('loading');
+
+      try {
+        const res = await fetch('/api/test/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lead_id: leadId, message, type: 'text' }),
+        });
+
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Falha ao iniciar simulação.');
+        }
+
+        showToast('Teste iniciado! Acompanhe o processamento no terminal abaixo.', 'success');
+        fetchLogs();
+
+        // Rola até o terminal de logs
+        document.getElementById('logs-card').scrollIntoView({ behavior: 'smooth' });
+
+      } catch (err) {
+        showToast(`Erro no teste: ${err.message}`, 'error');
+      } finally {
+        btnSimulate.classList.remove('loading');
+      }
+    });
+  }
+}
+
+function escapeHtml(string) {
+  if (!string) return '';
+  return String(string)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }

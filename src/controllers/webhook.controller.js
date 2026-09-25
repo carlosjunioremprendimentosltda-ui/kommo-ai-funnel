@@ -1,4 +1,5 @@
 const { enqueueMessage } = require('../services/buffer.service');
+const { log } = require('../services/logger.service');
 
 /**
  * Controller responsável por receber webhooks do Salesbot ou da Chats API do Kommo
@@ -11,7 +12,7 @@ async function handleKommoWebhook(req, res) {
     const payload = req.body || {};
     const query = req.query || {};
 
-    console.log(`[Webhook] Evento recebido em /webhook/kommo`);
+    log('info', `📬 Webhook recebido do Kommo!`, { query, payload: Object.keys(payload).length > 0 ? payload : '(Vazio)' });
 
     // 1. Extração flexível do lead_id (atende Salesbot, Chats API ou Webhook geral)
     let leadId = 
@@ -40,18 +41,18 @@ async function handleKommoWebhook(req, res) {
       }
     }
 
-    // Se o webhook não enviou conteúdo, mas veio do Salesbot com lead_id, registramos para debug
     if (!leadId) {
-      console.warn('[Webhook] Payload ignorado: Não foi possível identificar o lead_id:', JSON.stringify(payload).slice(0, 200));
+      log('warn', `⚠️ Webhook recebido sem lead_id identificado. Verifique se o Salesbot está enviando ?lead_id={{lead.id}} na URL.`, payload);
       return;
     }
 
     if (!content) {
-      console.warn(`[Webhook] Lead ${leadId} recebido, mas nenhum conteúdo de mensagem/áudio foi encontrado no payload.`);
-      return;
+      // Se não veio texto direto, vamos tentar processar mesmo assim ou alertar
+      log('warn', `⚠️ Lead ${leadId} recebido, mas nenhum texto ou link de áudio veio no corpo do webhook.`);
+      content = '(Mensagem recebida sem corpo no webhook)';
     }
 
-    console.log(`[Webhook] Enfileirando interação para o Lead ${leadId} (Tipo: ${type})`);
+    log('success', `📥 Lead ${leadId} identificado! Conteúdo detectado: [${type.toUpperCase()}] "${content.slice(0, 100)}..."`);
 
     // 3. Envia para o serviço de buffer / debounce
     enqueueMessage({
@@ -61,7 +62,7 @@ async function handleKommoWebhook(req, res) {
     });
 
   } catch (error) {
-    console.error('[Webhook] Erro ao processar payload do webhook:', error);
+    log('error', `❌ Erro crítico no webhook: ${error.message}`, error.stack);
   }
 }
 

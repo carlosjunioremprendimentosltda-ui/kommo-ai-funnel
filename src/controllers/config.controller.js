@@ -177,8 +177,55 @@ async function fetchPipelines(req, res) {
   }
 }
 
+const { getLogs, clearLogs, log } = require('../services/logger.service');
+const { enqueueMessage } = require('../services/buffer.service');
+
+function getLogsEndpoint(req, res) {
+  res.json({
+    success: true,
+    logs: getLogs(),
+  });
+}
+
+function clearLogsEndpoint(req, res) {
+  clearLogs();
+  res.json({
+    success: true,
+    message: 'Logs limpos com sucesso.',
+  });
+}
+
+/**
+ * Simula um webhook para testes diretos pelo navegador
+ */
+function simulateWebhookEndpoint(req, res) {
+  const { lead_id, message, type = 'text' } = req.body;
+
+  if (!lead_id || !message) {
+    return res.status(400).json({
+      success: false,
+      error: 'Informe lead_id e message para simular.',
+    });
+  }
+
+  log('info', `🧪 [SIMULAÇÃO DE TESTE] Simulando webhook para Lead ${lead_id}...`);
+  enqueueMessage({
+    leadId: lead_id,
+    type,
+    content: message,
+  });
+
+  res.json({
+    success: true,
+    message: `Mensagem de teste enfileirada para o Lead ${lead_id}. Acompanhe o log abaixo!`,
+  });
+}
+
 module.exports = {
   getConfig,
   saveConfig,
   fetchPipelines,
+  getLogsEndpoint,
+  clearLogsEndpoint,
+  simulateWebhookEndpoint,
 };
