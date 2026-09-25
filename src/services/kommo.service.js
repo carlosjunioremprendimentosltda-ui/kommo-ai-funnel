@@ -103,43 +103,121 @@ async function getPipelines() {
 }
 
 /**
- * Busca as últimas notas/interações do lead para extrair a última mensagem ou áudio do WhatsApp
+ * Busca as últimas notas e eventos do lead e dos contatos vinculados para extrair a mensagem/áudio
  * @param {number|string} leadId 
  */
 async function getLeadLatestMessage(leadId) {
   try {
     const client = getKommoClient();
-    const response = await client.get(`/leads/${leadId}/notes?order[created_at]=desc&limit=10`);
-    const notes = response.data?._embedded?.notes || [];
 
-    for (const note of notes) {
-      // Ignora notas internas geradas pela nossa própria IA
-      if (note.params?.text && note.params.text.includes('TRIAGEM AUTOMÁTICA')) {
-        continue;
-      }
+    // 1. Tenta buscar nas notas do Lead
+    const leadNotesRes = await client.get(`/leads/${leadId}/notes?order[created_at]=desc&limit=10`).catch(() => null);
+    const leadNotes = leadNotesRes?.data?._embedded?.notes || [];
+    const extractedFromLead = extractMessageFromNotes(leadNotes);
+    if (extractedFromLead) return extractedFromLead;
 
-      // Se for link de arquivo de áudio
-      const link = note.params?.link || note.params?.file?.link || note.params?.attachment?.link;
-      if (link && (link.includes('.ogg') || link.includes('.mp3') || link.includes('.opus') || link.includes('media'))) {
-        return { type: 'voice', content: link };
-      }
+    // 2. Se não achou nas notas do Lead, busca contatos vinculados (onde chats de WhatsApp ficam)
+    const leadRes = await client.get(`/leads/${leadId}?with=contacts`).catch(() => null);
+    const contacts = leadRes?.data?._embedded?.contacts || [];
 
-      // Se for texto
-      if (note.params?.text && note.params.text.trim()) {
-        const text = note.params.text.trim();
-        if (text.startsWith('http') && (text.includes('.ogg') || text.includes('.mp3') || text.includes('.opus'))) {
-          return { type: 'voice', content: text };
-        }
-        return { type: 'text', content: text };
-      }
+    for (const contact of contacts) {
+      const contactNotesRes = await client.get(`/contacts/${contact.id}/notes?order[created_at]=desc&limit=10`).catch(() => null);
+      const contactNotes = contactNotesRes?.data?._embedded?.notes || [];
+      const extractedFromContact = extractMessageFromNotes(contactNotes);
+      if (extractedFromContact) return extractedFromContact;
+    }
+
+    // 3. Tenta buscar nos Eventos recentes do Lead e Contatos (mensagens de chat/WhatsApp do Kommo)
+    const leadEventsRes = await client.get(`/events?filter[entity]=lead&filter[entity_id]=${leadId}&order[created_at]=desc&limit=10`).catch(() => null);
+    const leadEvents = leadEventsRes?.data?._embedded?.events || [];
+    const extractedFromLeadEvents = extractMessageFromEvents(leadEvents);
+    if (extractedFromLeadEvents) return extractedFromLeadEvents;
+
+    for (const contact of contacts) {
+      const contactEventsRes = await client.get(`/events?filter[entity]=contact&filter[entity_id]=${contact.id}&order[created_at]=desc&limit=10`).catch(() => null);
+      const contactEvents = contactEventsRes?.data?._embedded?.events || [];
+      const extractedFromContactEvents = extractMessageFromEvents(contactEvents);
+      if (extractedFromContactEvents) return extractedFromContactEvents;
     }
 
     return null;
   } catch (error) {
     const msg = error.response ? JSON.stringify(error.response.data) : error.message;
-    console.warn(`[KommoService] Não foi possível obter histórico de notas do lead ${leadId}:`, msg);
+    console.warn(`[KommoService] Não foi possível obter histórico do lead ${leadId}:`, msg);
     return null;
   }
+}
+
+function extractMessageFromNotes(notes) {
+  if (!Array.isArray(notes)) return null;
+
+  for (const note of notes) {
+    const p = note.params || {};
+
+    // Ignora notas da nossa própria IA
+    const fullText = (p.text || note.text || p.message || p.body || '').toString();
+    if (fullText.includes('TRIAGEM AUTOMÁTICA') || fullText.includes('🤖')) {
+      continue;
+    }
+
+    // Procura por link de áudio / arquivo em qualquer propriedade conhecida
+    const candidateLinks = [
+      p.link,
+      p.url,
+      p.file_url,
+      p.attachment?.link,
+      p.attachment?.url,
+      p.file?.link,
+      p.file?.url,
+      p.source,
+      note.file_url,
+    ].filter(Boolean);
+
+    for (const link of candidateLinks) {
+      if (typeof link === 'string' && (link.includes('.ogg') || link.includes('.mp3') || link.includes('.opus') || link.includes('.wav') || link.includes('.m4a') || link.includes('media') || link.includes('audio') || link.includes('voice'))) {
+        return { type: 'voice', content: link };
+      }
+    }
+
+    // Se o próprio texto for uma URL de áudio
+    if (fullText.startsWith('http') && (fullText.includes('.ogg') || fullText.includes('.mp3') || fullText.includes('.opus') || fullText.includes('.wav') || fullText.includes('.m4a'))) {
+      return { type: 'voice', content: fullText.trim() };
+    }
+
+    // Se for texto normal não-vazio
+    if (fullText.trim()) {
+      return { type: 'text', content: fullText.trim() };
+    }
+  }
+  return null;
+}
+
+function extractMessageFromEvents(events) {
+  if (!Array.isArray(events)) return null;
+
+  for (const event of events) {
+    const val = Array.isArray(event.value_after) ? event.value_after[0] : (event.value_after || {});
+    const msg = val.message || val.note || val || {};
+
+    const text = (typeof msg.text === 'string' ? msg.text : (typeof val.text === 'string' ? val.text : '')).trim();
+    const media = msg.media || msg.url || msg.link || val.media || val.url || '';
+
+    if (text.includes('TRIAGEM AUTOMÁTICA') || text.includes('🤖')) {
+      continue;
+    }
+
+    if (media && (media.includes('.ogg') || media.includes('.mp3') || media.includes('.opus') || media.includes('.wav') || media.includes('.m4a') || media.includes('audio') || media.includes('voice'))) {
+      return { type: 'voice', content: media };
+    }
+
+    if (text) {
+      if (text.startsWith('http') && (text.includes('.ogg') || text.includes('.mp3') || text.includes('.opus') || text.includes('.wav') || text.includes('.m4a'))) {
+        return { type: 'voice', content: text };
+      }
+      return { type: 'text', content: text };
+    }
+  }
+  return null;
 }
 
 module.exports = {

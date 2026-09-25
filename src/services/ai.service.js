@@ -58,31 +58,67 @@ async function transcribeAudioFromUrl(audioUrl) {
 
   const audioBuffer = Buffer.from(response.data);
 
+const GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+
+/**
+ * Executa chamada ao Gemini tentando os modelos disponíveis para a conta
+ */
+async function callGeminiWithFallback(ai, contents, config = {}) {
+  let lastErr = null;
+  for (const model of GEMINI_MODELS) {
+    try {
+      const res = await ai.models.generateContent({
+        model,
+        contents,
+        config,
+      });
+      return res;
+    } catch (err) {
+      lastErr = err;
+      const errStr = (err.message || '') + (typeof err === 'object' ? JSON.stringify(err) : '');
+      if (
+        errStr.includes('404') ||
+        errStr.includes('NOT_FOUND') ||
+        errStr.includes('not found') ||
+        errStr.includes('no longer available') ||
+        errStr.includes('deprecated') ||
+        err.status === 404 ||
+        err.code === 404
+      ) {
+        console.warn(`[AIService - Gemini] Modelo ${model} indisponível. Tentando próximo modelo...`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
   // 1. VIA GOOGLE GEMINI (Rápido, em memória e sem arquivos temporários)
   if (provider === 'gemini') {
     try {
       const ai = getGeminiClient();
       const base64Audio = audioBuffer.toString('base64');
 
-      const result = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [
-          {
-            inlineData: {
-              mimeType: 'audio/ogg',
-              data: base64Audio,
-            },
+      const result = await callGeminiWithFallback(ai, [
+        {
+          inlineData: {
+            mimeType: 'audio/ogg',
+            data: base64Audio,
           },
-          'Transcreva este áudio de WhatsApp em português brasileiro exatamente como foi falado. Retorne estritamente apenas a transcrição do áudio, sem introduções ou explicações.',
-        ],
-      });
+        },
+        'Transcreva este áudio de WhatsApp em português brasileiro exatamente como foi falado. Retorne estritamente apenas a transcrição do áudio, sem introduções ou explicações.',
+      ]);
 
       const text = result.text ? result.text.trim() : '';
       console.log(`[AIService - Gemini] Transcrição concluída: "${text}"`);
       return text;
     } catch (err) {
       console.error('[AIService - Gemini] Erro ao transcrever:', err.message);
-      throw new Error(`Falha na transcrição com Gemini: ${err.message}`);
+      if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.trim() === '') {
+        throw new Error(`Falha na transcrição com Gemini: ${err.message}`);
+      }
+      console.warn('[AIService] Falha no Gemini, tentando Whisper da OpenAI...');
     }
   }
 
@@ -164,18 +200,29 @@ RESPONDA EXCLUSIVAMENTE NO FORMATO JSON ABAIXO:
   try {
     // 1. VIA GOOGLE GEMINI
     if (provider === 'gemini') {
-      const ai = getGeminiClient();
-      const result = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
+      try {
+        const ai = getGeminiClient();
+        const result = await callGeminiWithFallback(ai, prompt, {
           responseMimeType: 'application/json',
           temperature: 0.1,
-        },
-      });
+        });
 
-      const parsed = JSON.parse(result.text);
-      return parsed;
+        const parsed = JSON.parse(result.text);
+        return parsed;
+      } catch (geminiErr) {
+        if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim() !== '') {
+          console.warn('[AIService] Gemini falhou, acionando fallback OpenAI...', geminiErr.message);
+          const openai = getOpenAIClient();
+          const completion = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            response_format: { type: 'json_object' },
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1,
+          });
+          return JSON.parse(completion.choices[0].message.content);
+        }
+        throw geminiErr;
+      }
     }
 
     // 2. VIA OPENAI

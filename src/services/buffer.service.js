@@ -1,5 +1,5 @@
 const { transcribeAudioFromUrl, classifyCustomerIntent } = require('./ai.service');
-const { updateLeadStage, addLeadNote } = require('./kommo.service');
+const { updateLeadStage, addLeadNote, getLeadLatestMessage } = require('./kommo.service');
 const { log } = require('./logger.service');
 const db = require('./db.service');
 
@@ -65,7 +65,19 @@ async function processLeadBuffer(leadId) {
 
     // 1. Processa cada item (transcreve áudio ou pega texto)
     for (let i = 0; i < leadData.items.length; i++) {
-      const item = leadData.items[i];
+      let item = leadData.items[i];
+
+      // Se a mensagem estava vazia ou pendente de localização, tenta buscar agora que o buffer de 25s já passou
+      if (!item.content || item.content === '(Mensagem não localizada)' || item.content === '(Mensagem recebida sem corpo no webhook)') {
+        log('info', `🔍 [Lead ${leadId}] Buscando novamente mensagens no CRM após os 25s de silêncio...`);
+        const fresh = await getLeadLatestMessage(leadId);
+        if (fresh) {
+          item.type = fresh.type;
+          item.content = fresh.content;
+          log('success', `📥 [Lead ${leadId}] Mensagem localizada no CRM: [${item.type.toUpperCase()}] "${item.content.slice(0, 100)}..."`);
+        }
+      }
+
       if (item.type === 'voice' || item.type === 'audio') {
         log('info', `🎙️ [Lead ${leadId}] [${i + 1}/${totalItems}] Transcrevendo áudio...`);
         try {
@@ -82,11 +94,21 @@ async function processLeadBuffer(leadId) {
     }
 
     const fullTranscript = parts.join('\n');
-    log('info', `🧠 [Lead ${leadId}] Enviando conteúdo consolidado para IA:\n${fullTranscript}`);
+    const hasValidContent = parts.some(p => !p.includes('(Mensagem não localizada)') && !p.includes('(Mensagem recebida sem corpo'));
 
-    // 2. Classifica a intenção com IA
-    const analysis = await classifyCustomerIntent(fullTranscript);
-    log('ai', `🎯 [Lead ${leadId}] Resultado da IA: [${analysis.classificacao}] - ${analysis.motivo}`, analysis);
+    let analysis;
+    if (!hasValidContent) {
+      log('warn', `⚠️ [Lead ${leadId}] Nenhuma mensagem ou áudio localizado no CRM após os 25s de espera.`);
+      analysis = {
+        classificacao: 'INCONCLUSIVO',
+        motivo: 'Nenhuma mensagem ou áudio foi encontrado na linha do tempo ou contatos do lead no Kommo após aguardar o envio.',
+        transcricao_resumida: '(Nenhuma mensagem localizada no CRM)',
+      };
+    } else {
+      log('info', `🧠 [Lead ${leadId}] Enviando conteúdo consolidado para IA:\n${fullTranscript}`);
+      analysis = await classifyCustomerIntent(fullTranscript);
+      log('ai', `🎯 [Lead ${leadId}] Resultado da IA: [${analysis.classificacao}] - ${analysis.motivo}`, analysis);
+    }
 
     // 3. Define a etapa de destino
     let targetStageId = null;
