@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: kommo-ai-funnel
+    env: node
+    plan: free
+    region: ohio
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: PORT
+        value: 3000
+      - key: KOMMO_SUBDOMAIN
+        sync: false
+      - key: KOMMO_ACCESS_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: STAGE_POSITIVO_ID
+        sync: false
+      - key: STAGE_NEGATIVO_ID
+        sync: false
+      - key: STAGE_HUMANO_ID
+        sync: false
+      - key: BUFFER_TIMEOUT_MS
+        value: 25000

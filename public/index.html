@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kommo AI Funnel | Painel de Configuração</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="background-glow glow-1"></div>
+  <div class="background-glow glow-2"></div>
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="logo-area">
+        <div class="logo-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+          </svg>
+        </div>
+        <div>
+          <h1 class="logo-title">Kommo AI Funnel</h1>
+          <p class="logo-subtitle">Triagem com IA, Transcrição de Áudio e Mudança Automática de Etapas</p>
+        </div>
+      </div>
+      <div class="header-status">
+        <span class="status-indicator" id="server-status-dot"></span>
+        <span id="server-status-text">Conectando...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main-container">
+    <form id="config-form" onsubmit="event.preventDefault();">
+      
+      <!-- Card 1: Credenciais de Conexão -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-icon blue">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+          </div>
+          <div>
+            <h2>1. Credenciais de Acesso</h2>
+            <p class="card-desc">Conexão segura com a API v4 do Kommo CRM e OpenAI</p>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <!-- Subdomínio Kommo -->
+          <div class="form-group">
+            <label for="subdomain">Subdomínio do Kommo</label>
+            <div class="input-addon-group">
+              <span class="addon-prefix">https://</span>
+              <input type="text" id="subdomain" name="KOMMO_SUBDOMAIN" placeholder="suaempresa" required>
+              <span class="addon-suffix">.kommo.com</span>
+            </div>
+            <span class="input-hint">Nome que aparece na barra de endereço da sua conta Kommo.</span>
+          </div>
+
+          <!-- Token de Acesso -->
+          <div class="form-group full-width">
+            <label for="token">Access Token do Kommo (Long-lived)</label>
+            <div class="input-with-button">
+              <input type="password" id="token" name="KOMMO_ACCESS_TOKEN" placeholder="Cole o token de longa duração gerado nas Integrações do Kommo" required>
+              <button type="button" class="btn-icon" id="toggle-token-btn" title="Mostrar/Ocultar Token">
+                <svg class="eye-icon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </div>
+            <span class="input-hint">Gerado em: <strong>Configurações > Integrações > Criar Integração</strong>.</span>
+          </div>
+
+          <!-- OpenAI Key -->
+          <div class="form-group full-width">
+            <label for="openai-key">Chave de API da OpenAI (Whisper + GPT-4o-mini)</label>
+            <div class="input-with-button">
+              <input type="password" id="openai-key" name="OPENAI_API_KEY" placeholder="sk-proj-..." required>
+              <button type="button" class="btn-icon" id="toggle-openai-btn" title="Mostrar/Ocultar Chave">
+                <svg class="eye-icon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </div>
+            <span class="input-hint">Usada para transcrever áudios do WhatsApp e classificar respostas com precisão.</span>
+          </div>
+        </div>
+
+        <div class="card-action-bar">
+          <button type="button" id="btn-fetch-pipelines" class="btn btn-secondary">
+            <svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+              <path d="M12 2a10 10 0 0 1 10 10"></path>
+            </svg>
+            <span class="btn-text">🔍 Testar Conexão & Carregar Funis</span>
+          </button>
+          <div id="connection-feedback" class="feedback-badge hidden"></div>
+        </div>
+      </section>
+
+      <!-- Card 2: Mapeamento de Etapas -->
+      <section class="card" id="stages-card">
+        <div class="card-header">
+          <div class="card-icon emerald">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+          </div>
+          <div>
+            <h2>2. Mapeamento das Etapas do Funil</h2>
+            <p class="card-desc">Escolha para qual etapa o lead será movido após a análise da IA</p>
+          </div>
+        </div>
+
+        <!-- Seletor de Funil -->
+        <div class="form-group full-width" style="margin-bottom: 20px;">
+          <label for="pipeline-select">Selecionar Funil Ativo</label>
+          <select id="pipeline-select" class="form-select">
+            <option value="">-- Carregue os funis acima primeiro --</option>
+          </select>
+        </div>
+
+        <!-- Três Etapas Coloridas -->
+        <div class="stages-grid">
+          
+          <!-- Etapa Positiva -->
+          <div class="stage-box stage-positive">
+            <div class="stage-tag positive-tag">
+              <span class="badge-dot"></span>
+              Resposta POSITIVA
+            </div>
+            <p class="stage-description">Lead demonstrou interesse, quer comprar, agendar ou pediu link de pagamento.</p>
+            <label for="stage-positivo">Mover para a Etapa:</label>
+            <select id="stage-positivo" name="STAGE_POSITIVO_ID" class="form-select">
+              <option value="">Carregando etapas...</option>
+            </select>
+            <div class="stage-id-preview" id="preview-positivo-id">ID: Não selecionado</div>
+          </div>
+
+          <!-- Etapa Negativa -->
+          <div class="stage-box stage-negative">
+            <div class="stage-tag negative-tag">
+              <span class="badge-dot"></span>
+              Resposta NEGATIVA
+            </div>
+            <p class="stage-description">Lead disse que não tem interesse, pediu para não contatar ou achou caro.</p>
+            <label for="stage-negativo">Mover para a Etapa:</label>
+            <select id="stage-negativo" name="STAGE_NEGATIVO_ID" class="form-select">
+              <option value="">Carregando etapas...</option>
+            </select>
+            <div class="stage-id-preview" id="preview-negativo-id">ID: Não selecionado</div>
+          </div>
+
+          <!-- Etapa Dúvida / Humano -->
+          <div class="stage-box stage-human">
+            <div class="stage-tag human-tag">
+              <span class="badge-dot"></span>
+              DÚVIDA / ATENDIMENTO
+            </div>
+            <p class="stage-description">Lead fez perguntas específicas, pediu suporte ou o áudio requer atenção humana.</p>
+            <label for="stage-humano">Mover para a Etapa:</label>
+            <select id="stage-humano" name="STAGE_HUMANO_ID" class="form-select">
+              <option value="">Carregando etapas...</option>
+            </select>
+            <div class="stage-id-preview" id="preview-humano-id">ID: Não selecionado</div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- Card 3: Regras de Controle & Debounce -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-icon amber">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </div>
+          <div>
+            <h2>3. Debounce & Agrupamento de Áudios</h2>
+            <p class="card-desc">Controle de tempo para consolidar mensagens seguidas do mesmo lead</p>
+          </div>
+        </div>
+
+        <div class="form-group full-width">
+          <div class="slider-header">
+            <label for="debounce-slider">Tempo de Silêncio para Processar</label>
+            <span class="slider-value-display"><strong id="debounce-value-text">25</strong> segundos</span>
+          </div>
+          <input type="range" id="debounce-slider" min="10" max="60" step="5" value="25" class="slider-input">
+          <input type="hidden" id="buffer-timeout-ms" name="BUFFER_TIMEOUT_MS" value="25000">
+          <span class="input-hint">
+            💡 Se o lead mandar 2 ou 3 áudios em sequência, o sistema aguarda este intervalo de silêncio para juntar todos e mandar de uma só vez para a IA.
+          </span>
+        </div>
+      </section>
+
+      <!-- Card 4: Configuração no Salesbot -->
+      <section class="card highlight-card">
+        <div class="card-header">
+          <div class="card-icon purple">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+          </div>
+          <div>
+            <h2>4. Webhook para o Salesbot</h2>
+            <p class="card-desc">Cole esta URL na etapa do seu Salesbot no Kommo</p>
+          </div>
+        </div>
+
+        <div class="webhook-url-box">
+          <input type="text" id="webhook-url-display" readonly value="">
+          <button type="button" id="btn-copy-webhook" class="btn btn-copy">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span id="copy-btn-text">Copiar URL</span>
+          </button>
+        </div>
+
+        <div class="salesbot-instructions">
+          <h4>📌 Como aplicar no seu Salesbot:</h4>
+          <ol>
+            <li>No funil do Kommo, abra o <strong>Salesbot</strong> na etapa que tem os botões de resposta.</li>
+            <li>No ramo <strong>"Qualquer outra resposta"</strong> (acionado quando o lead digita texto livre ou manda áudio):</li>
+            <li>Adicione a ação <strong>"Enviar um webhook"</strong> e cole a URL acima.</li>
+            <li>Adicione a ação <strong>"Parar o bot"</strong> logo em seguida para não atropelar a IA.</li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- Floating Action Footer -->
+      <footer class="action-footer">
+        <div class="action-footer-inner">
+          <span class="save-status-text" id="save-status-indicator">Alterações pendentes para salvar</span>
+          <button type="button" id="btn-save" class="btn btn-primary">
+            <svg class="btn-spinner" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+              <path d="M12 2a10 10 0 0 1 10 10"></path>
+            </svg>
+            <span class="btn-text">💾 Salvar Configurações</span>
+          </button>
+        </div>
+      </footer>
+
+    </form>
+  </main>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast"></div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
