@@ -1,0 +1,14 @@
+{
+  "config": {
+    "subdomain": "",
+    "accessToken": "seu_access_token_do_kommo_aqui",
+    "geminiApiKey": "",
+    "openaiApiKey": "",
+    "stagePositivoId": "",
+    "stageNegativoId": "",
+    "stageHumanoId": "",
+    "bufferTimeoutMs": 25000
+  },
+  "leadsHistory": [],
+  "logs": []
+}

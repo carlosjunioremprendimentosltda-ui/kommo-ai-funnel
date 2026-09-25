@@ -346,6 +346,51 @@
         </div>
       </section>
 
+      <!-- Card 7: Histórico de Leads Triados (Banco de Dados Local) -->
+      <section class="card" id="history-card" style="border-color: rgba(99, 102, 241, 0.25);">
+        <div class="card-header" style="justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <div class="card-icon purple" style="background: rgba(139, 92, 246, 0.15); color: #a78bfa;">
+              <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="9" cy="7" r="4"></circle>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+              </svg>
+            </div>
+            <div>
+              <h2>7. Histórico de Leads Triados pelo Sistema</h2>
+              <p class="card-desc">Salvo automaticamente no mini banco de dados local para você acompanhar os resultados</p>
+            </div>
+          </div>
+          <button type="button" id="btn-refresh-history" class="btn btn-secondary" style="padding: 6px 14px; font-size: 0.8rem;">
+            🔄 Atualizar
+          </button>
+        </div>
+
+        <div class="history-table-container">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>Data / Hora</th>
+                <th>Lead ID</th>
+                <th>Decisão da IA</th>
+                <th>Mensagem Analisada</th>
+                <th>Etapa Destino</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="history-table-body">
+              <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-dim); padding: 24px;">
+                  Nenhum lead processado ainda. Os leads triados aparecerão aqui automaticamente.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <!-- Floating Action Footer -->
       <footer class="action-footer">
         <div class="action-footer-inner">

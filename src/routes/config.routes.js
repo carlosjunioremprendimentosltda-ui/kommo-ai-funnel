@@ -6,7 +6,8 @@ const {
   fetchPipelines, 
   getLogsEndpoint, 
   clearLogsEndpoint, 
-  simulateWebhookEndpoint 
+  simulateWebhookEndpoint,
+  getLeadHistoryEndpoint
 } = require('../controllers/config.controller');
 
 router.get('/config', getConfig);
@@ -15,5 +16,6 @@ router.post('/kommo/pipelines', fetchPipelines);
 router.get('/logs', getLogsEndpoint);
 router.post('/logs/clear', clearLogsEndpoint);
 router.post('/test/simulate', simulateWebhookEndpoint);
+router.get('/history', getLeadHistoryEndpoint);
 
 module.exports = router;

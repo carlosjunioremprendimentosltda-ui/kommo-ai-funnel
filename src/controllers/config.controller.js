@@ -68,25 +68,17 @@ function writeEnvFile(newConfig) {
   }
 }
 
+const db = require('../services/db.service');
+
 /**
- * GET /api/config - Retorna a configuração atual
+ * GET /api/config - Retorna a configuração atual do banco de dados
  */
 function getConfig(req, res) {
   try {
-    const config = readEnvFile();
+    const config = db.getConfig();
     res.json({
       success: true,
-      data: {
-        PORT: config.PORT || process.env.PORT || '3000',
-        KOMMO_SUBDOMAIN: config.KOMMO_SUBDOMAIN || process.env.KOMMO_SUBDOMAIN || '',
-        KOMMO_ACCESS_TOKEN: config.KOMMO_ACCESS_TOKEN || process.env.KOMMO_ACCESS_TOKEN || '',
-        STAGE_POSITIVO_ID: config.STAGE_POSITIVO_ID || process.env.STAGE_POSITIVO_ID || '',
-        STAGE_NEGATIVO_ID: config.STAGE_NEGATIVO_ID || process.env.STAGE_NEGATIVO_ID || '',
-        STAGE_HUMANO_ID: config.STAGE_HUMANO_ID || process.env.STAGE_HUMANO_ID || '',
-        BUFFER_TIMEOUT_MS: config.BUFFER_TIMEOUT_MS || process.env.BUFFER_TIMEOUT_MS || '25000',
-        GEMINI_API_KEY: config.GEMINI_API_KEY || process.env.GEMINI_API_KEY || '',
-        OPENAI_API_KEY: config.OPENAI_API_KEY || process.env.OPENAI_API_KEY || '',
-      },
+      data: config,
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -94,36 +86,33 @@ function getConfig(req, res) {
 }
 
 /**
- * POST /api/config - Salva novas configurações no .env
+ * POST /api/config - Salva novas configurações no banco de dados e ambiente
  */
 function saveConfig(req, res) {
   try {
-    const {
-      KOMMO_SUBDOMAIN,
-      KOMMO_ACCESS_TOKEN,
-      GEMINI_API_KEY,
-      OPENAI_API_KEY,
-      STAGE_POSITIVO_ID,
-      STAGE_NEGATIVO_ID,
-      STAGE_HUMANO_ID,
-      BUFFER_TIMEOUT_MS,
-    } = req.body;
-
-    const payload = {};
-    if (KOMMO_SUBDOMAIN !== undefined) payload.KOMMO_SUBDOMAIN = KOMMO_SUBDOMAIN.trim();
-    if (KOMMO_ACCESS_TOKEN !== undefined) payload.KOMMO_ACCESS_TOKEN = KOMMO_ACCESS_TOKEN.trim();
-    if (GEMINI_API_KEY !== undefined) payload.GEMINI_API_KEY = GEMINI_API_KEY.trim();
-    if (OPENAI_API_KEY !== undefined) payload.OPENAI_API_KEY = OPENAI_API_KEY.trim();
-    if (STAGE_POSITIVO_ID !== undefined) payload.STAGE_POSITIVO_ID = STAGE_POSITIVO_ID;
-    if (STAGE_NEGATIVO_ID !== undefined) payload.STAGE_NEGATIVO_ID = STAGE_NEGATIVO_ID;
-    if (STAGE_HUMANO_ID !== undefined) payload.STAGE_HUMANO_ID = STAGE_HUMANO_ID;
-    if (BUFFER_TIMEOUT_MS !== undefined) payload.BUFFER_TIMEOUT_MS = BUFFER_TIMEOUT_MS;
-
-    writeEnvFile(payload);
+    const updated = db.updateConfig(req.body);
+    // Também tenta persistir no .env para desenvolvimento local se possível
+    writeEnvFile(req.body);
 
     res.json({
       success: true,
-      message: 'Configurações salvas e aplicadas com sucesso!',
+      data: updated,
+      message: 'Configurações salvas e sincronizadas com sucesso no banco de dados!',
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+}
+
+/**
+ * GET /api/history - Retorna o histórico de leads triados
+ */
+function getLeadHistoryEndpoint(req, res) {
+  try {
+    const history = db.getLeadHistory(50);
+    res.json({
+      success: true,
+      data: history,
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -228,4 +217,5 @@ module.exports = {
   getLogsEndpoint,
   clearLogsEndpoint,
   simulateWebhookEndpoint,
+  getLeadHistoryEndpoint,
 };

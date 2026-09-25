@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadCurrentConfig();
   initLogsPoller();
   initSimulationControls();
+  initHistoryPoller();
 });
 
 /**
@@ -494,4 +495,97 @@ function escapeHtml(string) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+/**
+ * ========================================================
+ * HISTÓRICO DE LEADS (MINI BANCO DE DADOS LOCAL)
+ * ========================================================
+ */
+function initHistoryPoller() {
+  loadHistory();
+  setInterval(loadHistory, 4000);
+
+  const btnRefresh = document.getElementById('btn-refresh-history');
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', () => {
+      loadHistory();
+      showToast('Histórico atualizado!', 'success');
+    });
+  }
+}
+
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/history');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.success && Array.isArray(data.data)) {
+      renderHistoryTable(data.data);
+    }
+  } catch (e) {
+    // Silencioso
+  }
+}
+
+function renderHistoryTable(items) {
+  const tbody = document.getElementById('history-table-body');
+  if (!tbody) return;
+
+  if (items.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; color: var(--text-dim); padding: 24px;">
+          Nenhum lead processado ainda. Os leads triados aparecerão aqui automaticamente.
+        </td>
+      </tr>`;
+    return;
+  }
+
+  const subdomain = currentConfig.KOMMO_SUBDOMAIN || '';
+
+  tbody.innerHTML = items.map((item) => {
+    let tagClass = 'positive-tag';
+    if (item.classification === 'NEGATIVO') tagClass = 'negative-tag';
+    else if (item.classification === 'DUVIDA') tagClass = 'human-tag';
+    else if (item.classification === 'ERRO') tagClass = 'tag-error';
+
+    const leadUrl = subdomain && subdomain !== 'suaempresa' 
+      ? `https://${subdomain}.kommo.com/leads/detail/${item.leadId}`
+      : null;
+
+    const leadDisplay = leadUrl 
+      ? `<a href="${leadUrl}" target="_blank" class="lead-link">#${item.leadId} ↗</a>`
+      : `#${item.leadId}`;
+
+    const statusBadge = item.success !== false
+      ? `<span style="color: #34d399; font-weight: 600;">✓ Concluído</span>`
+      : `<span style="color: #f87171; font-weight: 600;">✗ Falha</span>`;
+
+    return `
+      <tr>
+        <td style="white-space: nowrap; color: var(--text-muted); font-size: 0.8rem;">
+          ${item.date || ''} ${item.timestamp || ''}
+        </td>
+        <td><strong>${leadDisplay}</strong></td>
+        <td>
+          <span class="stage-tag ${tagClass}" style="font-size: 0.7rem; padding: 2px 8px;">
+            ${escapeHtml(item.classification)}
+          </span>
+        </td>
+        <td style="max-width: 320px; font-size: 0.8rem;" title="${escapeHtml(item.message)}">
+          <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            ${escapeHtml(item.message || '(Áudio/Texto)')}
+          </div>
+          <small style="color: var(--text-dim); display: block;">${escapeHtml(item.reason || '')}</small>
+        </td>
+        <td style="font-size: 0.8rem; color: #a78bfa;">
+          ${escapeHtml(item.stageName || item.targetStageId || '-')}
+        </td>
+        <td style="font-size: 0.8rem;">
+          ${statusBadge}
+        </td>
+      </tr>
+    `;
+  }).join('');
 }

@@ -1,6 +1,7 @@
 const { transcribeAudioFromUrl, classifyCustomerIntent } = require('./ai.service');
 const { updateLeadStage, addLeadNote } = require('./kommo.service');
 const { log } = require('./logger.service');
+const db = require('./db.service');
 
 // Mapa em memória para gerenciar o debounce por lead
 const leadBuffers = new Map();
@@ -128,8 +129,28 @@ ${fullTranscript}
     await addLeadNote(leadId, noteText);
     log('success', `📝 [Lead ${leadId}] Nota de auditoria salva na linha do tempo do CRM.`);
 
+    // 6. Grava no banco de dados para exibição no histórico do frontend
+    db.recordLeadEvent({
+      leadId,
+      message: fullTranscript,
+      classification: analysis.classificacao,
+      reason: analysis.motivo,
+      targetStageId: targetStageId || '',
+      stageName: stageName || 'Não alterada',
+      success: true,
+    });
+
   } catch (err) {
     log('error', `❌ [Lead ${leadId}] Erro crítico no processamento: ${err.message}`, err.stack);
+    db.recordLeadEvent({
+      leadId,
+      message: 'Falha durante o processamento',
+      classification: 'ERRO',
+      reason: err.message,
+      targetStageId: '',
+      stageName: 'Erro',
+      success: false,
+    });
   }
 }
 
