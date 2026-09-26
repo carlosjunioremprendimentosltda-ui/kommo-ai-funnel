@@ -57,15 +57,28 @@ function syncAccountSubdomain(payload, query) {
   }
 }
 
+const db = require('../services/db.service');
+
 /**
  * Etapa de Ingestão 3: Extração resiliente do ID do Lead
  */
 function extractLeadId(payload, query) {
   const candidates = [
+    // Webhook direto / Query
     query.lead_id,
     query.id,
+    query.element_id,
     payload.lead_id,
     payload.id,
+
+    // Webhooks de mensagem do Kommo (message[add] e chats API)
+    payload.message?.add?.[0]?.element_id,
+    payload['message[add][0][element_id]'],
+    payload.message?.element_id,
+    payload.talk?.lead_id,
+    payload['talk[lead_id]'],
+
+    // Webhooks de eventos de leads
     payload.leads?.add?.[0]?.id,
     payload.leads?.status?.[0]?.id,
     payload.leads?.update?.[0]?.id,
@@ -96,7 +109,15 @@ function extractMessageData(payload, query) {
 
   // Lista exaustiva de possíveis campos onde o texto ou áudio pode ser enviado
   const candidates = [
-    // 1. Query parameters do webhook (Salesbot GET ou parâmetros de URL)
+    // 1. Webhook de Mensagem Adicionada (Integrações > Webhooks > Mensagem adicionada)
+    payload.message?.add?.[0]?.text,
+    payload.message?.add?.[0]?.attachment?.link,
+    payload.message?.add?.[0]?.attachment?.url,
+    payload['message[add][0][text]'],
+    payload['message[add][0][attachment][link]'],
+    payload['message[add][0][attachment][url]'],
+
+    // 2. Query parameters do webhook (Salesbot GET ou parâmetros de URL)
     query.message,
     query.text,
     query.last_message,
@@ -113,12 +134,16 @@ function extractMessageData(payload, query) {
     query.url,
     query.data,
 
-    // 2. Payload da Chats API / Salesbot POST
+    // 3. Payload da Chats API / Salesbot POST / Talks
     payload.message?.media,
     payload.message?.text,
     payload.message?.content,
     payload.message?.body,
     typeof payload.message === 'string' ? payload.message : '',
+    payload.talk?.message?.text,
+    payload.talk?.message?.media,
+    payload['talk[message][text]'],
+    payload['talk[message][media]'],
     payload.text,
     payload.last_message,
     payload.client_message,
@@ -137,7 +162,9 @@ function extractMessageData(payload, query) {
     payload.data?.last_message,
     payload.data?.client_message,
 
-    // 3. Leads do Kommo (quando enviado via gatilho de funil)
+    // 4. Leads do Kommo (quando enviado via gatilho de funil)
+    payload.lead?.event?.text,
+    payload.lead?.event?.media,
     payload.leads?.add?.[0]?.message,
     payload.leads?.add?.[0]?.last_message,
     payload.leads?.add?.[0]?.text,
@@ -151,12 +178,12 @@ function extractMessageData(payload, query) {
     payload.lead?.last_message,
     payload.lead?.text,
 
-    // 4. Notas vinculadas
+    // 5. Notas vinculadas
     payload.notes?.add?.[0]?.text,
     payload.notes?.add?.[0]?.params?.text,
     payload.notes?.add?.[0]?.params?.link,
 
-    // 5. Chaves planas (form-urlencoded padrão)
+    // 6. Chaves planas (form-urlencoded padrão)
     payload['message'],
     payload['text'],
     payload['last_message'],
@@ -204,26 +231,40 @@ function extractMessageData(payload, query) {
 }
 
 /**
- * Etapa de Ingestão 5: Resolução de conteúdo ausente via CRM Timeline caso não venha no webhook
+ * Etapa de Ingestão 5: Resolução e Armazenamento Interno de Mensagens
+ * Salva mensagens recebidas no banco interno ou recupera mensagens prévias quando o Salesbot envia apenas o ID.
  */
 async function resolveInitialMessage(leadId, messageData) {
   let { type, content, wasDecoded } = messageData;
 
   const isMissing = !content || content.includes('{{') || content.trim() === '';
+
   if (isMissing) {
-    log('info', `🔍 [Lead ${leadId}] Webhook sem texto direto no payload/query. Buscando na linha do tempo do Kommo CRM...`);
-    const fetched = await getLeadLatestMessage(leadId);
-    if (fetched) {
-      type = fetched.type;
-      content = decodeUrlValue(fetched.content);
-      log('success', `📥 [Lead ${leadId}] Mensagem localizada no CRM: [${type.toUpperCase()}] "${content.slice(0, 100)}..."`);
-    } else {
-      log('warn', `⚠️ [Lead ${leadId}] Nenhuma mensagem recente encontrada na linha do tempo ou contatos do CRM.`);
-      content = '(Mensagem não localizada)';
+    // Caso 1: O webhook chegou sem texto (ex: webhook do Salesbot com apenas leadId)
+    // Consulta diretamente nosso BANCO DE DADOS INTERNO sem chamar API externa do Kommo!
+    log('info', `🔍 [Lead ${leadId}] Webhook recebido sem texto direto. Consultando BANCO DE DADOS INTERNO...`);
+    const storedMsg = db.getLatestMessageForLead(leadId);
+
+    if (storedMsg) {
+      type = storedMsg.type;
+      content = storedMsg.content;
+      log('success', `💾 [Banco Interno] Última mensagem do Lead ${leadId} localizada no banco local: [${type.toUpperCase()}] "${content.slice(0, 100)}..."`);
+      return { type, content, fromDb: true };
     }
+
+    // Se ainda não consta no banco interno (ex: Salesbot disparou milissegundos antes do webhook de mensagem)
+    log('info', `⏱️ [Lead ${leadId}] Nenhuma mensagem gravada previamente no banco local. O debounce de 25s aguardará a chegada da mensagem...`);
+    content = '(Aguardando mensagem no banco interno)';
   } else {
-    const decodeNote = wasDecoded ? ' (Decodificado com sucesso de URL-encoded)' : '';
-    log('success', `📥 [Lead ${leadId}] Mensagem recebida diretamente no Webhook${decodeNote}: [${type.toUpperCase()}] "${content.slice(0, 100)}..."`);
+    // Caso 2: O webhook trouxe uma mensagem (ex: Webhook de mensagem recebida do Kommo!)
+    // SALVA NO BANCO DE DADOS INTERNO para controle local independente!
+    db.saveIncomingMessage({
+      leadId,
+      type,
+      content,
+    });
+    const decodeNote = wasDecoded ? ' (Decodificado de URL-encoded)' : '';
+    log('success', `💾 [Banco Interno] Mensagem recebida salva com sucesso no banco para Lead ${leadId}${decodeNote}: [${type.toUpperCase()}] "${content.slice(0, 100)}..."`);
   }
 
   return { type, content };
@@ -309,4 +350,5 @@ module.exports = {
   isValidLeadId,
   extractLeadId,
   extractMessageData,
+  resolveInitialMessage,
 };

@@ -10,5 +10,6 @@
     "bufferTimeoutMs": 25000
   },
   "leadsHistory": [],
-  "logs": []
+  "logs": [],
+  "incomingMessages": []
 }

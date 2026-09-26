@@ -38,7 +38,13 @@ async function initHealthCheck() {
 function initWebhookUrl() {
   const host = window.location.origin;
   const webhookInput = document.getElementById('webhook-url-display');
-  webhookInput.value = `${host}/webhook/kommo?lead_id={{lead.id}}&message={{last_message}}`;
+  if (webhookInput) {
+    webhookInput.value = `${host}/webhook/kommo?lead_id={{lead.id}}`;
+  }
+  const webhookMsgInput = document.getElementById('webhook-msg-url-display');
+  if (webhookMsgInput) {
+    webhookMsgInput.value = `${host}/webhook/message`;
+  }
 }
 
 /**
@@ -61,18 +67,35 @@ function initFormControls() {
     hiddenTimeout.value = seconds * 1000;
   });
 
-  // Copiar URL do Webhook
+  // Copiar URL do Webhook do Salesbot
   const btnCopy = document.getElementById('btn-copy-webhook');
-  btnCopy.addEventListener('click', () => {
-    const webhookInput = document.getElementById('webhook-url-display');
-    navigator.clipboard.writeText(webhookInput.value).then(() => {
-      const copyText = document.getElementById('copy-btn-text');
-      const original = copyText.textContent;
-      copyText.textContent = 'Copiado! ✓';
-      setTimeout(() => { copyText.textContent = original; }, 2000);
-      showToast('URL copiada para a área de transferência!', 'success');
+  if (btnCopy) {
+    btnCopy.addEventListener('click', () => {
+      const webhookInput = document.getElementById('webhook-url-display');
+      navigator.clipboard.writeText(webhookInput.value).then(() => {
+        const copyText = document.getElementById('copy-btn-text');
+        const original = copyText.textContent;
+        copyText.textContent = 'Copiado! ✓';
+        setTimeout(() => { copyText.textContent = original; }, 2000);
+        showToast('URL do Salesbot copiada!', 'success');
+      });
     });
-  });
+  }
+
+  // Copiar URL do Webhook de Mensagens
+  const btnCopyMsg = document.getElementById('btn-copy-webhook-msg');
+  if (btnCopyMsg) {
+    btnCopyMsg.addEventListener('click', () => {
+      const webhookMsgInput = document.getElementById('webhook-msg-url-display');
+      navigator.clipboard.writeText(webhookMsgInput.value).then(() => {
+        const copyText = document.getElementById('copy-msg-btn-text');
+        const original = copyText.textContent;
+        copyText.textContent = 'Copiado! ✓';
+        setTimeout(() => { copyText.textContent = original; }, 2000);
+        showToast('URL de Mensagens copiada!', 'success');
+      });
+    });
+  }
 
   // Botão Testar Conexão & Carregar Funis
   const btnFetch = document.getElementById('btn-fetch-pipelines');

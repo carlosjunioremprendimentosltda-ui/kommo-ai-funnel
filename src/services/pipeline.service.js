@@ -18,15 +18,34 @@ async function step1_resolveMessages(leadId, items) {
   for (let i = 0; i < items.length; i++) {
     const item = { ...items[i] };
     const isMissingContent = !item.content || 
+      item.content.includes('Aguardando mensagem') ||
       item.content === '(Mensagem não localizada)' || 
       item.content === '(Mensagem recebida sem corpo no webhook)';
 
     if (isMissingContent) {
-      logStep(leadId, 1, TOTAL_STEPS, 'Resolução de Mensagens', `Buscando histórico atualizado do Lead no Kommo...`);
+      // 1. Consulta prioritária no BANCO DE DADOS INTERNO
+      logStep(leadId, 1, TOTAL_STEPS, 'Resolução de Mensagens', `Consultando banco de dados interno por mensagens recebidas do Lead ${leadId}...`);
+      const recentMessages = db.getRecentMessagesForLead(leadId, 5);
+
+      if (recentMessages && recentMessages.length > 0) {
+        logStep(leadId, 1, TOTAL_STEPS, 'Resolução de Mensagens', `✅ Encontrada(s) ${recentMessages.length} mensagem(ns) no banco interno!`, null, 'success');
+        for (const rm of recentMessages) {
+          resolvedItems.push({
+            type: rm.type,
+            content: rm.content,
+            receivedAt: rm.fullDate,
+          });
+        }
+        continue;
+      }
+
+      // 2. Se não estiver no banco interno, faz consulta secundária no CRM Kommo
+      logStep(leadId, 1, TOTAL_STEPS, 'Resolução de Mensagens', `Nenhuma mensagem no banco interno. Buscando histórico no CRM Kommo...`, null, 'warn');
       const freshMessage = await getLeadLatestMessage(leadId);
       if (freshMessage) {
         item.type = freshMessage.type;
         item.content = freshMessage.content;
+        db.saveIncomingMessage({ leadId, type: item.type, content: item.content });
         logStep(leadId, 1, TOTAL_STEPS, 'Resolução de Mensagens', `Mensagem localizada no CRM: [${item.type.toUpperCase()}] "${item.content.slice(0, 80)}..."`, null, 'success');
       }
     }

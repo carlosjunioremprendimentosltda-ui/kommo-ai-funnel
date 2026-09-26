@@ -225,7 +225,7 @@
         </div>
       </section>
 
-      <!-- Card 4: Configuração no Salesbot -->
+      <!-- Card 4: Webhooks e Banco Interno de Mensagens -->
       <section class="card highlight-card">
         <div class="card-header">
           <div class="card-icon purple">
@@ -235,32 +235,58 @@
             </svg>
           </div>
           <div>
-            <h2>4. Webhook para o Salesbot</h2>
-            <p class="card-desc">Cole esta URL na etapa do seu Salesbot no Kommo</p>
+            <h2>4. Webhooks & Controle por Banco Interno</h2>
+            <p class="card-desc">Armazena mensagens recebidas localmente e tria os leads sem depender de consultas externas</p>
           </div>
         </div>
 
-        <div class="webhook-url-box">
-          <input type="text" id="webhook-url-display" readonly value="">
-          <button type="button" id="btn-copy-webhook" class="btn btn-copy">
-            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-            <span id="copy-btn-text">Copiar URL</span>
-          </button>
+        <div style="margin-bottom: 18px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.9rem; color: var(--text);">
+            📬 1. Webhook de Mensagens Recebidas (Kommo ➔ Integrações ➔ Webhooks)
+          </label>
+          <div class="webhook-url-box">
+            <input type="text" id="webhook-msg-url-display" readonly value="">
+            <button type="button" id="btn-copy-webhook-msg" class="btn btn-copy">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span id="copy-msg-btn-text">Copiar URL</span>
+            </button>
+          </div>
+          <span class="input-hint" style="margin-top: 4px; display: block;">
+            Configure em <strong>Configurações > Integrações > Webhooks > Mensagem adicionada</strong>. Todas as mensagens/áudios recebidos são armazenados no banco interno localmente.
+          </span>
+        </div>
+
+        <div style="margin-bottom: 18px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.9rem; color: var(--text);">
+            🤖 2. Webhook do Salesbot (Disparo de Triagem do Lead)
+          </label>
+          <div class="webhook-url-box">
+            <input type="text" id="webhook-url-display" readonly value="">
+            <button type="button" id="btn-copy-webhook" class="btn btn-copy">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span id="copy-btn-text">Copiar URL</span>
+            </button>
+          </div>
+          <span class="input-hint" style="margin-top: 4px; display: block;">
+            Cole na ação <strong>"Enviar um webhook"</strong> dentro da etapa do Salesbot. Nosso backend recupera a última conversa diretamente do banco interno.
+          </span>
         </div>
 
         <div class="salesbot-instructions">
-          <h4>📌 Como aplicar no seu Salesbot:</h4>
+          <h4>💡 Como funciona o fluxo 100% interno:</h4>
           <ol>
-            <li>No funil do Kommo, abra o <strong>Salesbot</strong> na etapa que tem os botões de resposta.</li>
-            <li>No ramo <strong>"Qualquer outra resposta"</strong> (acionado quando o lead digita texto livre ou manda áudio):</li>
-            <li>Adicione a ação <strong>"Enviar um webhook"</strong> e cole a URL acima (ela já inclui <code>&message={{last_message}}</code>).</li>
-            <li>O backend <strong>decodifica automaticamente</strong> o texto ou áudio mesmo que venha em formato URL-encoded do Salesbot!</li>
-            <li>Adicione a ação <strong>"Parar o bot"</strong> logo em seguida para não atropelar a IA.</li>
+            <li>Quando o cliente envia áudio ou texto no WhatsApp, o webhook (1) salva a mensagem no banco interno em milissegundos.</li>
+            <li>Quando o Salesbot dispara o webhook (2) com o ID do Lead, o backend consulta o banco de dados interno e obtém a mensagem exata.</li>
+            <li>Zero lentidão, sem falhas de histórico e sem depender de requisições de consulta à API externa do CRM!</li>
           </ol>
         </div>
+      </section>
       <!-- Card 5: Simulador de Teste -->
       <section class="card" style="border-color: rgba(99, 102, 241, 0.3);">
         <div class="card-header">

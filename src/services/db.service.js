@@ -3,7 +3,6 @@ const path = require('path');
 
 const DB_PATH = path.join(__dirname, '../../data/db.json');
 
-// Estrutura padrão inicial caso o banco não exista
 const DEFAULT_DB = {
   config: {
     subdomain: '',
@@ -16,6 +15,7 @@ const DEFAULT_DB = {
     stageInconclusivoId: '',
     bufferTimeoutMs: 25000,
   },
+  incomingMessages: [], // Mensagens recebidas via webhook
   leadsHistory: [],
   logs: [],
 };
@@ -44,6 +44,11 @@ function init() {
   } else {
     memoryDb = { ...DEFAULT_DB };
     persist();
+  }
+
+  // Garante que o array de mensagens recebidas exista
+  if (!Array.isArray(memoryDb.incomingMessages)) {
+    memoryDb.incomingMessages = [];
   }
 
   // Sincronização Inteligente:
@@ -184,6 +189,92 @@ function getLeadHistory(limit = 50) {
   return memoryDb.leadsHistory.slice(0, limit);
 }
 
+/**
+ * Salva uma mensagem ou áudio recebido via webhook no banco de dados interno
+ * @param {Object} msgData
+ * @param {string|number} [msgData.leadId]
+ * @param {string|number} [msgData.contactId]
+ * @param {string} msgData.type - 'text' | 'voice'
+ * @param {string} msgData.content - texto ou URL do áudio
+ */
+function saveIncomingMessage(msgData) {
+  if (!memoryDb) init();
+  if (!Array.isArray(memoryDb.incomingMessages)) {
+    memoryDb.incomingMessages = [];
+  }
+
+  const content = (msgData.content || '').toString().trim();
+  if (!content) return null;
+
+  const leadIdStr = msgData.leadId ? String(msgData.leadId).trim() : null;
+  const contactIdStr = msgData.contactId ? String(msgData.contactId).trim() : null;
+
+  const record = {
+    id: `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+    leadId: leadIdStr,
+    contactId: contactIdStr,
+    type: msgData.type || 'text',
+    content,
+    timestamp: new Date().toLocaleTimeString('pt-BR'),
+    date: new Date().toLocaleDateString('pt-BR'),
+    fullDate: new Date().toISOString(),
+    createdAt: Date.now(),
+  };
+
+  // Insere a mais recente no início
+  memoryDb.incomingMessages.unshift(record);
+
+  // Mantém até 500 mensagens recentes no banco
+  if (memoryDb.incomingMessages.length > 500) {
+    memoryDb.incomingMessages.pop();
+  }
+
+  persist();
+  return record;
+}
+
+/**
+ * Retorna a mensagem mais recente salva no banco para um determinado leadId
+ * @param {string|number} leadId 
+ */
+function getLatestMessageForLead(leadId) {
+  if (!memoryDb) init();
+  if (!Array.isArray(memoryDb.incomingMessages)) return null;
+
+  const searchId = String(leadId).trim();
+  const found = memoryDb.incomingMessages.find(m => m.leadId === searchId);
+  return found || null;
+}
+
+/**
+ * Retorna todas as mensagens recentes de um lead armazenadas no banco (ex: múltiplos áudios/textos consecutivos)
+ * @param {string|number} leadId 
+ * @param {number} limit 
+ */
+function getRecentMessagesForLead(leadId, limit = 10) {
+  if (!memoryDb) init();
+  if (!Array.isArray(memoryDb.incomingMessages)) return [];
+
+  const searchId = String(leadId).trim();
+  return memoryDb.incomingMessages
+    .filter(m => m.leadId === searchId)
+    .slice(0, limit);
+}
+
+/**
+ * Retorna todas as mensagens armazenadas
+ */
+function getIncomingMessages(limit = 100) {
+  if (!memoryDb) init();
+  return (memoryDb.incomingMessages || []).slice(0, limit);
+}
+
+function clearIncomingMessages() {
+  if (!memoryDb) init();
+  memoryDb.incomingMessages = [];
+  persist();
+}
+
 // Inicializa automaticamente no carregamento do módulo
 init();
 
@@ -193,4 +284,9 @@ module.exports = {
   updateConfig,
   recordLeadEvent,
   getLeadHistory,
+  saveIncomingMessage,
+  getLatestMessageForLead,
+  getRecentMessagesForLead,
+  getIncomingMessages,
+  clearIncomingMessages,
 };
