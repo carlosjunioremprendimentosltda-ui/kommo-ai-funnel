@@ -1,13 +1,11 @@
-const { transcribeAudioFromUrl, classifyCustomerIntent } = require('./ai.service');
-const { updateLeadStage, addLeadNote, getLeadLatestMessage } = require('./kommo.service');
+const { executeLeadPipeline } = require('./pipeline.service');
 const { log } = require('./logger.service');
-const db = require('./db.service');
 
 // Mapa em memória para gerenciar o debounce por lead
 const leadBuffers = new Map();
 
 /**
- * Adiciona uma mensagem ou áudio ao buffer do lead e reinicia o cronômetro
+ * Adiciona uma mensagem ou áudio ao buffer do lead e reinicia o cronômetro de silêncio
  * @param {Object} params
  * @param {string|number} params.leadId - ID do lead no Kommo
  * @param {string} params.type - Tipo ('text', 'voice', 'audio')
@@ -47,135 +45,43 @@ function enqueueMessage({ leadId, type, content }) {
 }
 
 /**
- * Processa todas as mensagens e áudios acumulados para um determinado lead
+ * Disparado quando o timer de debounce expira.
+ * Extrai os itens acumulados e delega para o Pipeline de Triagem sequencial.
  * @param {string|number} leadId 
  */
 async function processLeadBuffer(leadId) {
   const leadData = leadBuffers.get(leadId);
   if (!leadData) return;
 
-  // Remove do buffer ativo
+  // Remove do buffer ativo imediatamente
   leadBuffers.delete(leadId);
 
-  const totalItems = leadData.items.length;
-  log('info', `🚀 [Lead ${leadId}] Buffer concluído! Iniciando processamento de ${totalItems} mensagem(ns)...`);
+  const items = leadData.items || [];
+  log('info', `🚀 [Lead ${leadId}] Buffer concluído! Consolidando ${items.length} mensagem(ns) para envio ao pipeline...`);
 
-  try {
-    const parts = [];
+  // Delega a execução organizada para o Pipeline Service
+  await executeLeadPipeline(leadId, items);
+}
 
-    // 1. Processa cada item (transcreve áudio ou pega texto)
-    for (let i = 0; i < leadData.items.length; i++) {
-      let item = leadData.items[i];
-
-      // Se a mensagem estava vazia ou pendente de localização, tenta buscar agora que o buffer de 25s já passou
-      if (!item.content || item.content === '(Mensagem não localizada)' || item.content === '(Mensagem recebida sem corpo no webhook)') {
-        log('info', `🔍 [Lead ${leadId}] Buscando novamente mensagens no CRM após os 25s de silêncio...`);
-        const fresh = await getLeadLatestMessage(leadId);
-        if (fresh) {
-          item.type = fresh.type;
-          item.content = fresh.content;
-          log('success', `📥 [Lead ${leadId}] Mensagem localizada no CRM: [${item.type.toUpperCase()}] "${item.content.slice(0, 100)}..."`);
-        }
-      }
-
-      if (item.type === 'voice' || item.type === 'audio') {
-        log('info', `🎙️ [Lead ${leadId}] [${i + 1}/${totalItems}] Transcrevendo áudio...`);
-        try {
-          const audioText = await transcribeAudioFromUrl(item.content);
-          parts.push(`[Áudio ${i + 1}]: "${audioText}"`);
-          log('success', `🎙️ [Lead ${leadId}] Áudio transcrito: "${audioText}"`);
-        } catch (audioErr) {
-          parts.push(`[Áudio ${i + 1}]: (Falha ao transcrever: ${audioErr.message})`);
-          log('error', `❌ [Lead ${leadId}] Falha ao transcrever áudio: ${audioErr.message}`);
-        }
-      } else {
-        parts.push(`[Texto ${i + 1}]: "${item.content}"`);
-      }
-    }
-
-    const fullTranscript = parts.join('\n');
-    const hasValidContent = parts.some(p => !p.includes('(Mensagem não localizada)') && !p.includes('(Mensagem recebida sem corpo'));
-
-    let analysis;
-    if (!hasValidContent) {
-      log('warn', `⚠️ [Lead ${leadId}] Nenhuma mensagem ou áudio localizado no CRM após os 25s de espera.`);
-      analysis = {
-        classificacao: 'INCONCLUSIVO',
-        motivo: 'Nenhuma mensagem ou áudio foi encontrado na linha do tempo ou contatos do lead no Kommo após aguardar o envio.',
-        transcricao_resumida: '(Nenhuma mensagem localizada no CRM)',
-      };
-    } else {
-      log('info', `🧠 [Lead ${leadId}] Enviando conteúdo consolidado para IA:\n${fullTranscript}`);
-      analysis = await classifyCustomerIntent(fullTranscript);
-      log('ai', `🎯 [Lead ${leadId}] Resultado da IA: [${analysis.classificacao}] - ${analysis.motivo}`, analysis);
-    }
-
-    // 3. Define a etapa de destino
-    let targetStageId = null;
-    let stageName = '';
-
-    if (analysis.classificacao === 'POSITIVO') {
-      targetStageId = process.env.STAGE_POSITIVO_ID;
-      stageName = 'POSITIVO (Interessado / Fechamento)';
-    } else if (analysis.classificacao === 'NEGATIVO') {
-      targetStageId = process.env.STAGE_NEGATIVO_ID;
-      stageName = 'NEGATIVO (Descarte / Sem Interesse)';
-    } else if (analysis.classificacao === 'DUVIDA') {
-      targetStageId = process.env.STAGE_HUMANO_ID;
-      stageName = 'DÚVIDA (Atendimento Humano)';
-    } else {
-      targetStageId = process.env.STAGE_HUMANO_ID || null;
-      stageName = 'INCONCLUSIVO (Revisão Manual)';
-    }
-
-    // 4. Executa a mudança de etapa no Kommo se houver ID configurado
-    if (targetStageId && targetStageId !== '00000000' && targetStageId.trim() !== '') {
-      log('kommo', `➡️ [Lead ${leadId}] Movendo para a etapa: ${stageName} (ID: ${targetStageId})...`);
-      await updateLeadStage(leadId, targetStageId);
-      log('success', `✅ [Lead ${leadId}] Etapa alterada com sucesso no Kommo!`);
-    } else {
-      log('warn', `⚠️ [Lead ${leadId}] Nenhuma etapa válida configurada para ${analysis.classificacao} no seu .env. O lead permaneceu na mesma etapa.`);
-    }
-
-    // 5. Salva a nota de auditoria detalhada no Lead
-    const noteText = `🤖 TRIAGEM AUTOMÁTICA DE RESPOSTA/ÁUDIO
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 Classificação: ${analysis.classificacao}
-🎯 Decisão: ${stageName}
-💡 Motivo da IA: ${analysis.motivo}
-
-💬 Mensagens/Áudios Analisados:
-${fullTranscript}
-━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-
-    await addLeadNote(leadId, noteText);
-    log('success', `📝 [Lead ${leadId}] Nota de auditoria salva na linha do tempo do CRM.`);
-
-    // 6. Grava no banco de dados para exibição no histórico do frontend
-    db.recordLeadEvent({
-      leadId,
-      message: fullTranscript,
-      classification: analysis.classificacao,
-      reason: analysis.motivo,
-      targetStageId: targetStageId || '',
-      stageName: stageName || 'Não alterada',
-      success: true,
+/**
+ * Retorna o status do buffer (útil para diagnósticos)
+ */
+function getBufferStatus() {
+  const activeLeads = [];
+  leadBuffers.forEach((val, key) => {
+    activeLeads.push({
+      leadId: key,
+      pendingItems: val.items.length,
     });
-
-  } catch (err) {
-    log('error', `❌ [Lead ${leadId}] Erro crítico no processamento: ${err.message}`, err.stack);
-    db.recordLeadEvent({
-      leadId,
-      message: 'Falha durante o processamento',
-      classification: 'ERRO',
-      reason: err.message,
-      targetStageId: '',
-      stageName: 'Erro',
-      success: false,
-    });
-  }
+  });
+  return {
+    totalActiveLeads: activeLeads.length,
+    leads: activeLeads,
+  };
 }
 
 module.exports = {
   enqueueMessage,
+  processLeadBuffer,
+  getBufferStatus,
 };

@@ -38,7 +38,7 @@ async function initHealthCheck() {
 function initWebhookUrl() {
   const host = window.location.origin;
   const webhookInput = document.getElementById('webhook-url-display');
-  webhookInput.value = `${host}/webhook/kommo?lead_id={{lead.id}}`;
+  webhookInput.value = `${host}/webhook/kommo?lead_id={{lead.id}}&message={{last_message}}`;
 }
 
 /**

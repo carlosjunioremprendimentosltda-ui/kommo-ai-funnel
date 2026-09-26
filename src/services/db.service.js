@@ -13,6 +13,7 @@ const DEFAULT_DB = {
     stagePositivoId: '',
     stageNegativoId: '',
     stageHumanoId: '',
+    stageInconclusivoId: '',
     bufferTimeoutMs: 25000,
   },
   leadsHistory: [],
@@ -68,6 +69,9 @@ function init() {
   if (process.env.STAGE_HUMANO_ID && !memoryDb.config.stageHumanoId) {
     memoryDb.config.stageHumanoId = process.env.STAGE_HUMANO_ID;
   }
+  if (process.env.STAGE_INCONCLUSIVO_ID && !memoryDb.config.stageInconclusivoId) {
+    memoryDb.config.stageInconclusivoId = process.env.STAGE_INCONCLUSIVO_ID;
+  }
 
   // 2. Injeta os dados do DB de volta no process.env para que todos os serviços (Kommo, Gemini) acessem instantaneamente
   syncToProcessEnv();
@@ -95,6 +99,7 @@ function syncToProcessEnv() {
   if (cfg.stagePositivoId) process.env.STAGE_POSITIVO_ID = cfg.stagePositivoId;
   if (cfg.stageNegativoId) process.env.STAGE_NEGATIVO_ID = cfg.stageNegativoId;
   if (cfg.stageHumanoId) process.env.STAGE_HUMANO_ID = cfg.stageHumanoId;
+  if (cfg.stageInconclusivoId) process.env.STAGE_INCONCLUSIVO_ID = cfg.stageInconclusivoId;
   if (cfg.bufferTimeoutMs) process.env.BUFFER_TIMEOUT_MS = String(cfg.bufferTimeoutMs);
 }
 
@@ -112,6 +117,7 @@ function getConfig() {
     STAGE_POSITIVO_ID: memoryDb.config.stagePositivoId || process.env.STAGE_POSITIVO_ID || '',
     STAGE_NEGATIVO_ID: memoryDb.config.stageNegativoId || process.env.STAGE_NEGATIVO_ID || '',
     STAGE_HUMANO_ID: memoryDb.config.stageHumanoId || process.env.STAGE_HUMANO_ID || '',
+    STAGE_INCONCLUSIVO_ID: memoryDb.config.stageInconclusivoId || process.env.STAGE_INCONCLUSIVO_ID || '',
     BUFFER_TIMEOUT_MS: String(memoryDb.config.bufferTimeoutMs || process.env.BUFFER_TIMEOUT_MS || 25000),
   };
 }
@@ -129,6 +135,7 @@ function updateConfig(newConfig) {
   if (newConfig.STAGE_POSITIVO_ID !== undefined) memoryDb.config.stagePositivoId = String(newConfig.STAGE_POSITIVO_ID).trim();
   if (newConfig.STAGE_NEGATIVO_ID !== undefined) memoryDb.config.stageNegativoId = String(newConfig.STAGE_NEGATIVO_ID).trim();
   if (newConfig.STAGE_HUMANO_ID !== undefined) memoryDb.config.stageHumanoId = String(newConfig.STAGE_HUMANO_ID).trim();
+  if (newConfig.STAGE_INCONCLUSIVO_ID !== undefined) memoryDb.config.stageInconclusivoId = String(newConfig.STAGE_INCONCLUSIVO_ID).trim();
   if (newConfig.BUFFER_TIMEOUT_MS !== undefined) memoryDb.config.bufferTimeoutMs = Number(newConfig.BUFFER_TIMEOUT_MS) || 25000;
 
   syncToProcessEnv();

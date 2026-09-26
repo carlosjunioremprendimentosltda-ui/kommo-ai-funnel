@@ -256,7 +256,8 @@
           <ol>
             <li>No funil do Kommo, abra o <strong>Salesbot</strong> na etapa que tem os botões de resposta.</li>
             <li>No ramo <strong>"Qualquer outra resposta"</strong> (acionado quando o lead digita texto livre ou manda áudio):</li>
-            <li>Adicione a ação <strong>"Enviar um webhook"</strong> e cole a URL acima.</li>
+            <li>Adicione a ação <strong>"Enviar um webhook"</strong> e cole a URL acima (ela já inclui <code>&message={{last_message}}</code>).</li>
+            <li>O backend <strong>decodifica automaticamente</strong> o texto ou áudio mesmo que venha em formato URL-encoded do Salesbot!</li>
             <li>Adicione a ação <strong>"Parar o bot"</strong> logo em seguida para não atropelar a IA.</li>
           </ol>
         </div>

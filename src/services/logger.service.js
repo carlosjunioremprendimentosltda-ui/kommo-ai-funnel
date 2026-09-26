@@ -37,6 +37,12 @@ function getLogs() {
   return logs;
 }
 
+function logStep(leadId, stepNumber, totalSteps, title, message, details = null, level = 'info') {
+  const stepPrefix = `[Lead ${leadId}] [Etapa ${stepNumber}/${totalSteps}: ${title}]`;
+  const fullMessage = message ? `${stepPrefix} ${message}` : stepPrefix;
+  log(level, fullMessage, details);
+}
+
 function clearLogs() {
   logs.length = 0;
   log('info', 'Logs limpos pelo usuário.');
@@ -44,6 +50,7 @@ function clearLogs() {
 
 module.exports = {
   log,
+  logStep,
   getLogs,
   clearLogs,
 };

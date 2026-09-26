@@ -103,49 +103,187 @@ async function getPipelines() {
 }
 
 /**
- * Busca as últimas notas e eventos do lead e dos contatos vinculados para extrair a mensagem/áudio
+ * Extrai texto ou áudio de campos customizados do Lead ou Contato (onde Salesbots costumam salvar respostas)
+ */
+function extractMessageFromCustomFields(customFields) {
+  if (!Array.isArray(customFields)) return null;
+
+  for (const cf of customFields) {
+    const name = (cf.field_name || cf.field_code || '').toLowerCase();
+    const isMessageField = name.includes('mensagem') || 
+      name.includes('resposta') || 
+      name.includes('audio') || 
+      name.includes('message') || 
+      name.includes('texto') || 
+      name.includes('chat') || 
+      name.includes('waba') ||
+      name.includes('last');
+
+    if (Array.isArray(cf.values) && cf.values.length > 0) {
+      const rawVal = cf.values[0]?.value;
+      if (rawVal) {
+        const decoded = decodeUrlValue(String(rawVal));
+        if (decoded && !decoded.includes('{{') && decoded.trim() !== '') {
+          if (decoded.startsWith('http') && (decoded.includes('.ogg') || decoded.includes('.mp3') || decoded.includes('.opus') || decoded.includes('.wav') || decoded.includes('.m4a') || decoded.includes('audio') || decoded.includes('voice'))) {
+            return { type: 'voice', content: decoded };
+          }
+          if (isMessageField) {
+            return { type: 'text', content: decoded };
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Busca as últimas conversas, mensagens e áudios do lead nos múltiplos pontos de armazenamento da API v4 do Kommo
  * @param {number|string} leadId 
  */
 async function getLeadLatestMessage(leadId) {
   try {
     const client = getKommoClient();
 
-    // 1. Tenta buscar nas notas do Lead
-    const leadNotesRes = await client.get(`/leads/${leadId}/notes?order[created_at]=desc&limit=10`).catch(() => null);
-    const leadNotes = leadNotesRes?.data?._embedded?.notes || [];
-    const extractedFromLead = extractMessageFromNotes(leadNotes);
-    if (extractedFromLead) return extractedFromLead;
-
-    // 2. Se não achou nas notas do Lead, busca contatos vinculados (onde chats de WhatsApp ficam)
-    const leadRes = await client.get(`/leads/${leadId}?with=contacts`).catch(() => null);
-    const contacts = leadRes?.data?._embedded?.contacts || [];
-
-    for (const contact of contacts) {
-      const contactNotesRes = await client.get(`/contacts/${contact.id}/notes?order[created_at]=desc&limit=10`).catch(() => null);
-      const contactNotes = contactNotesRes?.data?._embedded?.notes || [];
-      const extractedFromContact = extractMessageFromNotes(contactNotes);
-      if (extractedFromContact) return extractedFromContact;
+    // 1. Busca dados cadastrais do Lead e Contatos vinculados
+    let leadData = null;
+    let contacts = [];
+    try {
+      const leadRes = await client.get(`/leads/${leadId}?with=contacts`);
+      leadData = leadRes.data;
+      contacts = leadData?._embedded?.contacts || [];
+    } catch (leadErr) {
+      console.warn(`[KommoService] Aviso ao consultar Lead ${leadId}:`, leadErr.response?.data?.detail || leadErr.message);
     }
 
-    // 3. Tenta buscar nos Eventos recentes do Lead e Contatos (mensagens de chat/WhatsApp do Kommo)
-    const leadEventsRes = await client.get(`/events?filter[entity]=lead&filter[entity_id]=${leadId}&order[created_at]=desc&limit=10`).catch(() => null);
-    const leadEvents = leadEventsRes?.data?._embedded?.events || [];
-    const extractedFromLeadEvents = extractMessageFromEvents(leadEvents);
-    if (extractedFromLeadEvents) return extractedFromLeadEvents;
-
-    for (const contact of contacts) {
-      const contactEventsRes = await client.get(`/events?filter[entity]=contact&filter[entity_id]=${contact.id}&order[created_at]=desc&limit=10`).catch(() => null);
-      const contactEvents = contactEventsRes?.data?._embedded?.events || [];
-      const extractedFromContactEvents = extractMessageFromEvents(contactEvents);
-      if (extractedFromContactEvents) return extractedFromContactEvents;
+    // 1.1 Se o Salesbot gravou a resposta em um campo customizado do Lead
+    if (leadData?.custom_fields_values) {
+      const fromLeadFields = extractMessageFromCustomFields(leadData.custom_fields_values);
+      if (fromLeadFields) {
+        console.log(`[KommoService] ✅ Mensagem localizada nos campos customizados do Lead ${leadId}`);
+        return fromLeadFields;
+      }
     }
 
+    // 2. Busca notas na linha do tempo do LEAD (sem order inválido na query; ordena em memória)
+    try {
+      const leadNotesRes = await client.get(`/leads/${leadId}/notes?limit=50`);
+      const leadNotes = leadNotesRes.data?._embedded?.notes || [];
+      leadNotes.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      const extractedFromLead = extractMessageFromNotes(leadNotes);
+      if (extractedFromLead) {
+        console.log(`[KommoService] ✅ Mensagem localizada nas notas do Lead ${leadId}`);
+        return extractedFromLead;
+      }
+    } catch (notesErr) {
+      console.warn(`[KommoService] Aviso ao consultar notas do Lead ${leadId}:`, notesErr.response?.data?.detail || notesErr.message);
+    }
+
+    // 3. Busca nas conversas dos CONTATOS vinculados (onde WhatsApp/WABA registra chats)
+    for (const contact of contacts) {
+      // 3.1 Notas do contato (conversas e áudios de chat)
+      try {
+        const contactNotesRes = await client.get(`/contacts/${contact.id}/notes?limit=50`);
+        const contactNotes = contactNotesRes.data?._embedded?.notes || [];
+        contactNotes.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        const extractedFromContact = extractMessageFromNotes(contactNotes);
+        if (extractedFromContact) {
+          console.log(`[KommoService] ✅ Mensagem localizada nas conversas do Contato ${contact.id}`);
+          return extractedFromContact;
+        }
+      } catch (cNotesErr) {
+        console.warn(`[KommoService] Aviso ao consultar notas do Contato ${contact.id}:`, cNotesErr.response?.data?.detail || cNotesErr.message);
+      }
+
+      // 3.2 Campos customizados do contato
+      try {
+        const contactDetailRes = await client.get(`/contacts/${contact.id}`);
+        const cFields = contactDetailRes.data?.custom_fields_values || [];
+        const fromContactFields = extractMessageFromCustomFields(cFields);
+        if (fromContactFields) {
+          console.log(`[KommoService] ✅ Mensagem localizada nos campos customizados do Contato ${contact.id}`);
+          return fromContactFields;
+        }
+      } catch (cDetailErr) {}
+    }
+
+    // 4. Busca nos Eventos recentes do LEAD (/events)
+    try {
+      const leadEventsRes = await client.get(`/events?filter[entity]=lead&filter[entity_id]=${leadId}&limit=50`);
+      const leadEvents = leadEventsRes.data?._embedded?.events || [];
+      leadEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      const extractedFromLeadEvents = extractMessageFromEvents(leadEvents);
+      if (extractedFromLeadEvents) {
+        console.log(`[KommoService] ✅ Mensagem localizada nos eventos do Lead ${leadId}`);
+        return extractedFromLeadEvents;
+      }
+    } catch (leadEventsErr) {
+      console.warn(`[KommoService] Aviso ao consultar eventos do Lead ${leadId}:`, leadEventsErr.response?.data?.detail || leadEventsErr.message);
+    }
+
+    // 5. Busca nos Eventos recentes dos CONTATOS (/events)
+    for (const contact of contacts) {
+      try {
+        const contactEventsRes = await client.get(`/events?filter[entity]=contact&filter[entity_id]=${contact.id}&limit=50`);
+        const contactEvents = contactEventsRes.data?._embedded?.events || [];
+        contactEvents.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        const extractedFromContactEvents = extractMessageFromEvents(contactEvents);
+        if (extractedFromContactEvents) {
+          console.log(`[KommoService] ✅ Mensagem localizada nos eventos do Contato ${contact.id}`);
+          return extractedFromContactEvents;
+        }
+      } catch (cEventsErr) {
+        console.warn(`[KommoService] Aviso ao consultar eventos do Contato ${contact.id}:`, cEventsErr.response?.data?.detail || cEventsErr.message);
+      }
+    }
+
+    // 6. Conversas do Chats API / Talks
+    try {
+      const talksRes = await client.get(`/talks?filter[entity_id]=${leadId}&limit=10`);
+      const talks = talksRes.data?._embedded?.talks || [];
+      for (const talk of talks) {
+        const rawContent = talk.last_message || talk.message || talk.text;
+        if (rawContent) {
+          const txt = decodeUrlValue(rawContent);
+          if (txt && !txt.includes('{{')) {
+            console.log(`[KommoService] ✅ Mensagem localizada em Talks do Lead ${leadId}`);
+            return { type: 'text', content: txt };
+          }
+        }
+      }
+    } catch (talksErr) {}
+
+    console.warn(`[KommoService] Nenhuma mensagem ou áudio ativo localizado no Lead ${leadId} ou em seus contatos.`);
     return null;
   } catch (error) {
     const msg = error.response ? JSON.stringify(error.response.data) : error.message;
-    console.warn(`[KommoService] Não foi possível obter histórico do lead ${leadId}:`, msg);
+    console.warn(`[KommoService] Erro ao obter histórico do lead ${leadId}:`, msg);
     return null;
   }
+}
+
+function decodeUrlValue(val) {
+  if (val === null || val === undefined) return '';
+  if (typeof val !== 'string') return String(val).trim();
+  
+  let decoded = val.trim();
+  if (decoded === '') return '';
+
+  if (decoded.includes('+')) {
+    decoded = decoded.replace(/\+/g, ' ');
+  }
+
+  for (let i = 0; i < 2; i++) {
+    if (decoded.includes('%')) {
+      try {
+        decoded = decodeURIComponent(decoded);
+      } catch (e) {
+        break;
+      }
+    }
+  }
+
+  return decoded.trim();
 }
 
 function extractMessageFromNotes(notes) {
@@ -155,7 +293,7 @@ function extractMessageFromNotes(notes) {
     const p = note.params || {};
 
     // Ignora notas da nossa própria IA
-    const fullText = (p.text || note.text || p.message || p.body || '').toString();
+    const fullText = (p.text || note.text || p.message || p.body || p.content || '').toString();
     if (fullText.includes('TRIAGEM AUTOMÁTICA') || fullText.includes('🤖')) {
       continue;
     }
@@ -173,20 +311,23 @@ function extractMessageFromNotes(notes) {
       note.file_url,
     ].filter(Boolean);
 
-    for (const link of candidateLinks) {
+    for (const rawLink of candidateLinks) {
+      const link = decodeUrlValue(rawLink);
       if (typeof link === 'string' && (link.includes('.ogg') || link.includes('.mp3') || link.includes('.opus') || link.includes('.wav') || link.includes('.m4a') || link.includes('media') || link.includes('audio') || link.includes('voice'))) {
         return { type: 'voice', content: link };
       }
     }
 
+    const decodedText = decodeUrlValue(fullText);
+
     // Se o próprio texto for uma URL de áudio
-    if (fullText.startsWith('http') && (fullText.includes('.ogg') || fullText.includes('.mp3') || fullText.includes('.opus') || fullText.includes('.wav') || fullText.includes('.m4a'))) {
-      return { type: 'voice', content: fullText.trim() };
+    if (decodedText.startsWith('http') && (decodedText.includes('.ogg') || decodedText.includes('.mp3') || decodedText.includes('.opus') || decodedText.includes('.wav') || decodedText.includes('.m4a'))) {
+      return { type: 'voice', content: decodedText };
     }
 
     // Se for texto normal não-vazio
-    if (fullText.trim()) {
-      return { type: 'text', content: fullText.trim() };
+    if (decodedText) {
+      return { type: 'text', content: decodedText };
     }
   }
   return null;
@@ -199,12 +340,15 @@ function extractMessageFromEvents(events) {
     const val = Array.isArray(event.value_after) ? event.value_after[0] : (event.value_after || {});
     const msg = val.message || val.note || val || {};
 
-    const text = (typeof msg.text === 'string' ? msg.text : (typeof val.text === 'string' ? val.text : '')).trim();
-    const media = msg.media || msg.url || msg.link || val.media || val.url || '';
+    const rawText = (typeof msg.text === 'string' ? msg.text : (typeof val.text === 'string' ? val.text : '')).trim();
+    const rawMedia = msg.media || msg.url || msg.link || val.media || val.url || '';
 
-    if (text.includes('TRIAGEM AUTOMÁTICA') || text.includes('🤖')) {
+    if (rawText.includes('TRIAGEM AUTOMÁTICA') || rawText.includes('🤖')) {
       continue;
     }
+
+    const text = decodeUrlValue(rawText);
+    const media = decodeUrlValue(rawMedia);
 
     if (media && (media.includes('.ogg') || media.includes('.mp3') || media.includes('.opus') || media.includes('.wav') || media.includes('.m4a') || media.includes('audio') || media.includes('voice'))) {
       return { type: 'voice', content: media };

@@ -10,6 +10,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.text({ limit: '10mb', type: ['text/*', 'application/x-www-form-urlencoded'] }));
 
 // Servir frontend estático
 app.use(express.static(path.join(__dirname, '../public')));
@@ -32,6 +33,15 @@ app.get('*', (req, res, next) => {
     return next();
   }
   res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+
+// Middleware de tratamento de erros (ex: JSON malformado)
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ error: 'JSON inválido' });
+  }
+  console.error('[HTTP Error]', err.message);
+  res.status(500).json({ error: 'Erro interno no servidor' });
 });
 
 module.exports = app;
